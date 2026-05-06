@@ -1,28 +1,48 @@
 import { NextResponse } from "next/server";
+import { getMeta } from "@/lib/hyperliquid/client";
 
 /**
  * GET /api/v1/markets
  *
- * Lists supported trading pairs.
+ * Returns the full list of perpetual markets available on Hyperliquid,
+ * with leverage limits and decimals config. Cached for 5 minutes upstream.
  *
- * NOTE: v0 placeholder. M1 (Week 3-4) replaces this with live Hyperliquid
- * meta-data via WebSocket-cached data in Upstash Redis.
+ * Response:
+ *   {
+ *     data: [{ symbol, maxLeverage, szDecimals }, ...],
+ *     meta: { count, source, fetchedAt }
+ *   }
  */
-export async function GET() {
-  // Placeholder static list — to be replaced with live Hyperliquid meta query
-  const markets = [
-    { symbol: "BTC", maxLeverage: 50, status: "active" },
-    { symbol: "ETH", maxLeverage: 50, status: "active" },
-    { symbol: "SOL", maxLeverage: 25, status: "active" },
-    { symbol: "HYPE", maxLeverage: 10, status: "active" },
-  ];
+export const revalidate = 300; // 5 min ISR cache
 
-  return NextResponse.json({
-    data: markets,
-    meta: {
-      count: markets.length,
-      source: "placeholder",
-      cachedAt: null,
-    },
-  });
+export async function GET() {
+  try {
+    const meta = await getMeta();
+
+    const markets = meta.universe.map((u, idx) => ({
+      symbol: u.name,
+      assetIndex: idx,
+      maxLeverage: u.maxLeverage,
+      szDecimals: u.szDecimals,
+      onlyIsolated: u.onlyIsolated ?? false,
+    }));
+
+    return NextResponse.json({
+      data: markets,
+      meta: {
+        count: markets.length,
+        source: "hyperliquid",
+        fetchedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      {
+        error: "Failed to fetch markets",
+        detail: message,
+      },
+      { status: 502 }
+    );
+  }
 }

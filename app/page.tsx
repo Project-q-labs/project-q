@@ -1,8 +1,14 @@
 import Link from "next/link";
+import { PriceTicker } from "@/components/PriceTicker";
 
 export default function HomePage() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-bg text-ink">
+      {/* Live price ticker */}
+      <div className="relative z-20">
+        <PriceTicker />
+      </div>
+
       {/* Subtle grid background */}
       <div className="absolute inset-0 grid-bg opacity-60" aria-hidden="true" />
 
