@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 /**
  * PriceTicker
  *
  * Fetches /api/v1/prices every 5 seconds and renders a horizontal strip
- * of selected pairs with live mid prices. Tracks per-pair price direction
- * to show subtle up/down indicators.
+ * of selected pairs with live mid prices. Clicking a pair routes to
+ * /markets/<symbol> for full analysis.
  */
 
 const TICKER_PAIRS = [
@@ -70,7 +71,7 @@ export function PriceTicker() {
       }
     };
 
-    fetchPrices(); // initial load
+    fetchPrices();
     const interval = setInterval(fetchPrices, POLL_INTERVAL_MS);
 
     return () => {
@@ -79,7 +80,6 @@ export function PriceTicker() {
     };
   }, []);
 
-  // Loading state
   if (!prices && !hasError) {
     return (
       <div className="border-b border-bg-line bg-bg-deep">
@@ -90,7 +90,6 @@ export function PriceTicker() {
     );
   }
 
-  // Error state — keep the strip but show muted message
   if (hasError && !prices) {
     return (
       <div className="border-b border-bg-line bg-bg-deep">
@@ -109,11 +108,15 @@ export function PriceTicker() {
           if (price === undefined) return null;
           const dir = directions[symbol] ?? "flat";
           return (
-            <div
+            <Link
               key={symbol}
-              className="flex shrink-0 items-center gap-2 whitespace-nowrap"
+              href={`/markets/${symbol}`}
+              className="group flex shrink-0 items-center gap-2 whitespace-nowrap transition-opacity hover:opacity-100"
+              prefetch={false}
             >
-              <span className="text-ink-faint">{symbol}</span>
+              <span className="text-ink-faint group-hover:text-ink-mute transition-colors">
+                {symbol}
+              </span>
               <span
                 className={
                   dir === "up"
@@ -125,11 +128,10 @@ export function PriceTicker() {
               >
                 ${formatPrice(price)}
               </span>
-            </div>
+            </Link>
           );
         })}
 
-        {/* Live indicator */}
         <div className="ml-auto flex shrink-0 items-center gap-2 pl-6">
           <span className="relative flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal opacity-75" />
