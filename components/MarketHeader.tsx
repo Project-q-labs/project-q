@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { WatchlistStar } from "@/components/WatchlistStar";
 
 type MarketData = {
   symbol: string;
@@ -92,17 +93,18 @@ export function MarketHeader({ symbol }: Props) {
 
         {/* Pair name + price + 24h */}
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between md:gap-8">
-          <div className="flex items-baseline gap-4">
-            <h1 className="font-sans text-[36px] font-semibold leading-none tracking-tightest text-ink md:text-[52px]">
+          <div className="flex items-center gap-4">
+            <h1 className="font-sans text-[28px] font-semibold leading-none tracking-tightest text-ink sm:text-[36px] md:text-[52px]">
               {market.symbol}
             </h1>
+            <WatchlistStar symbol={market.symbol} size="md" />
             <span className="font-mono text-[12px] uppercase tracking-widest text-ink-faint">
               PERP · max {market.maxLeverage}x
             </span>
           </div>
 
           <div className="flex items-baseline gap-4">
-            <div className="font-mono text-[28px] font-medium leading-none text-ink md:text-[36px]">
+            <div className="font-mono text-[24px] font-medium leading-none text-ink sm:text-[28px] md:text-[36px]">
               ${formatPrice(market.markPx)}
             </div>
             <div

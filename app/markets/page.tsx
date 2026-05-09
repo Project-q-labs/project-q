@@ -38,7 +38,7 @@ export default function MarketsPage() {
           <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-signal">
             [ MARKETS ]
           </div>
-          <h1 className="mt-4 font-sans text-[32px] font-semibold leading-tight tracking-tightest text-ink md:text-[48px]">
+          <h1 className="mt-4 font-sans text-[28px] font-semibold leading-tight tracking-tightest text-ink sm:text-[32px] md:text-[48px]">
             Every perp.
             <br />
             <span className="text-ink-mute">Funding. OI. Volume.</span>

@@ -39,7 +39,7 @@ export default function RulesPreviewPage() {
           <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-signal">
             [ RULES · PREVIEW ]
           </div>
-          <h1 className="mt-4 font-sans text-[36px] font-semibold leading-[1.05] tracking-tightest text-ink md:text-[56px]">
+          <h1 className="mt-4 font-sans text-[28px] font-semibold leading-[1.05] tracking-tightest text-ink sm:text-[36px] md:text-[56px]">
             Compose your edge,
             <br />
             <span className="text-ink-mute">in plain English.</span>

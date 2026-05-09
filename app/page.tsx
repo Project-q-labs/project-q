@@ -38,7 +38,7 @@ export default function HomePage() {
       </header>
 
       {/* Hero */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 pt-16 md:px-10 md:pt-28">
+      <section className="relative z-10 mx-auto max-w-6xl px-6 pt-12 md:px-10 md:pt-28">
         {/* Eyebrow */}
         <div
           className="fade-up font-mono text-[11px] uppercase tracking-[0.2em] text-signal"
@@ -49,7 +49,7 @@ export default function HomePage() {
 
         {/* Headline */}
         <h1
-          className="fade-up mt-8 font-sans text-[44px] font-semibold leading-[1.02] tracking-tightest text-ink md:text-[88px]"
+          className="fade-up mt-8 font-sans text-[36px] font-semibold leading-[1.02] tracking-tightest text-ink sm:text-[44px] md:text-[88px]"
           style={{ animationDelay: "0.15s" }}
         >
           Trade by condition,
@@ -101,7 +101,7 @@ export default function HomePage() {
       </section>
 
       {/* Capability grid */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 pt-28 pb-32 md:px-10 md:pt-40">
+      <section className="relative z-10 mx-auto max-w-6xl px-6 pt-20 pb-20 md:px-10 md:pt-40 md:pb-32">
         <div
           className="fade-up mb-12 font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint"
           style={{ animationDelay: "0.6s" }}

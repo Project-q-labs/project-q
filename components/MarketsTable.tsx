@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useWatchlist } from "@/lib/watchlist/use-watchlist";
+import { WatchlistStar } from "@/components/WatchlistStar";
 
 type Market = {
   symbol: string;
@@ -33,6 +35,7 @@ type SortKey =
   | "maxLeverage";
 
 type SortDir = "asc" | "desc";
+type FilterMode = "all" | "watchlist";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -42,11 +45,12 @@ export function MarketsTable() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("dayNtlVlm");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const { symbols: watchedSymbols, has: isWatched } = useWatchlist();
 
   // Fetch + poll
   useEffect(() => {
     let cancelled = false;
-
     const load = async () => {
       try {
         const res = await fetch("/api/v1/markets", { cache: "no-store" });
@@ -60,7 +64,6 @@ export function MarketsTable() {
         if (!cancelled) setHasError(true);
       }
     };
-
     load();
     const interval = setInterval(load, POLL_INTERVAL_MS);
     return () => {
@@ -72,9 +75,13 @@ export function MarketsTable() {
   // Filter + sort
   const filteredMarkets = useMemo(() => {
     if (!markets) return null;
+    let rows = markets;
+
+    if (filterMode === "watchlist") {
+      rows = rows.filter((m) => isWatched(m.symbol));
+    }
 
     const q = search.trim().toLowerCase();
-    let rows = markets;
     if (q.length > 0) {
       rows = rows.filter((m) => m.symbol.toLowerCase().includes(q));
     }
@@ -88,19 +95,18 @@ export function MarketsTable() {
       }
       return ((av as number) - (bv as number)) * factor;
     });
-  }, [markets, search, sortKey, sortDir]);
+  }, [markets, search, sortKey, sortDir, filterMode, isWatched]);
 
   const setSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
       setSortKey(key);
-      // Sensible default direction per column
       setSortDir(key === "symbol" ? "asc" : "desc");
     }
   };
 
-  // Loading state
+  // Loading / error states
   if (!markets && !hasError) {
     return (
       <div className="px-6 py-12 text-center font-mono text-[12px] text-ink-faint md:px-10">
@@ -108,7 +114,6 @@ export function MarketsTable() {
       </div>
     );
   }
-
   if (hasError && !markets) {
     return (
       <div className="px-6 py-12 text-center font-mono text-[12px] text-ink-mute md:px-10">
@@ -119,106 +124,121 @@ export function MarketsTable() {
 
   return (
     <div>
-      {/* Search + meta row */}
+      {/* Toolbar */}
       <div className="flex flex-col gap-3 px-6 py-4 md:flex-row md:items-center md:justify-between md:px-10">
-        <div className="relative max-w-xs flex-1">
+        {/* Left: search + filter pills */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="search pair…"
-            className="w-full border border-bg-line bg-bg-panel px-3 py-2 font-mono text-[13px] text-ink placeholder-ink-faint focus:border-ink-mute focus:outline-none"
+            className="w-full max-w-xs border border-bg-line bg-bg-panel px-3 py-2 font-mono text-[13px] text-ink placeholder-ink-faint focus:border-ink-mute focus:outline-none"
           />
+
+          {/* Filter pills */}
+          <div className="inline-flex border border-bg-line bg-bg-panel font-mono text-[11px] uppercase tracking-widest">
+            <button
+              onClick={() => setFilterMode("all")}
+              className={`px-3 py-2 transition-colors ${
+                filterMode === "all"
+                  ? "bg-bg-line text-ink"
+                  : "text-ink-faint hover:text-ink-mute"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setFilterMode("watchlist")}
+              className={`flex items-center gap-2 px-3 py-2 transition-colors ${
+                filterMode === "watchlist"
+                  ? "bg-bg-line text-ink"
+                  : "text-ink-faint hover:text-ink-mute"
+              }`}
+            >
+              <span>★ Watchlist</span>
+              {watchedSymbols.length > 0 && (
+                <span className="text-signal">{watchedSymbols.length}</span>
+              )}
+            </button>
+          </div>
         </div>
+
+        {/* Right: count */}
         <div className="font-mono text-[11px] uppercase tracking-widest text-ink-faint">
           {filteredMarkets?.length ?? 0} of {markets?.length ?? 0} pairs
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto border-y border-bg-line">
-        <table className="w-full min-w-[920px] font-mono text-[13px]">
-          <thead className="border-b border-bg-line bg-bg-deep">
-            <tr className="text-left text-[10px] uppercase tracking-widest text-ink-faint">
-              <Th
-                label="Pair"
-                active={sortKey === "symbol"}
-                dir={sortKey === "symbol" ? sortDir : null}
-                onClick={() => setSort("symbol")}
-                align="left"
-              />
-              <Th
-                label="Price"
-                active={sortKey === "markPx"}
-                dir={sortKey === "markPx" ? sortDir : null}
-                onClick={() => setSort("markPx")}
-                align="right"
-              />
-              <Th
-                label="24h"
-                active={sortKey === "change24hPct"}
-                dir={sortKey === "change24hPct" ? sortDir : null}
-                onClick={() => setSort("change24hPct")}
-                align="right"
-              />
-              <Th
-                label="Funding (1h)"
-                active={sortKey === "funding"}
-                dir={sortKey === "funding" ? sortDir : null}
-                onClick={() => setSort("funding")}
-                align="right"
-              />
-              <Th
-                label="OI"
-                active={sortKey === "openInterestNotional"}
-                dir={sortKey === "openInterestNotional" ? sortDir : null}
-                onClick={() => setSort("openInterestNotional")}
-                align="right"
-              />
-              <Th
-                label="24h Volume"
-                active={sortKey === "dayNtlVlm"}
-                dir={sortKey === "dayNtlVlm" ? sortDir : null}
-                onClick={() => setSort("dayNtlVlm")}
-                align="right"
-              />
-              <Th
-                label="Max Lev"
-                active={sortKey === "maxLeverage"}
-                dir={sortKey === "maxLeverage" ? sortDir : null}
-                onClick={() => setSort("maxLeverage")}
-                align="right"
-              />
-            </tr>
-          </thead>
-          <tbody>
-            {filteredMarkets?.map((m) => (
-              <MarketRow key={m.symbol} market={m} />
-            ))}
-            {filteredMarkets?.length === 0 && (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-12 text-center text-ink-faint"
-                >
-                  no pairs match &quot;{search}&quot;
-                </td>
+      {/* Empty watchlist state */}
+      {filterMode === "watchlist" && watchedSymbols.length === 0 ? (
+        <div className="border-y border-bg-line px-6 py-16 text-center md:px-10">
+          <div className="font-mono text-[11px] uppercase tracking-widest text-ink-faint">
+            [ EMPTY WATCHLIST ]
+          </div>
+          <h3 className="mt-4 text-[18px] font-medium text-ink">
+            Star any pair to add it here
+          </h3>
+          <p className="mt-2 text-[13px] text-ink-mute">
+            Click the star (★) next to a pair&apos;s name. Saved locally —
+            wallet-backed sync arrives in M3.
+          </p>
+          <button
+            onClick={() => setFilterMode("all")}
+            className="mt-6 inline-flex items-center gap-2 border border-bg-line bg-bg-panel px-4 py-2 font-mono text-[12px] uppercase tracking-widest text-ink hover:border-ink-mute"
+          >
+            ← Browse all pairs
+          </button>
+        </div>
+      ) : (
+        <div className="overflow-x-auto border-y border-bg-line">
+          <table className="w-full min-w-[820px] font-mono text-[13px]">
+            <thead className="border-b border-bg-line bg-bg-deep">
+              <tr className="text-left text-[10px] uppercase tracking-widest text-ink-faint">
+                <th className="w-8 px-2 py-3" aria-label="watchlist" />
+                <Th label="Pair" active={sortKey === "symbol"}
+                    dir={sortKey === "symbol" ? sortDir : null}
+                    onClick={() => setSort("symbol")} align="left" />
+                <Th label="Price" active={sortKey === "markPx"}
+                    dir={sortKey === "markPx" ? sortDir : null}
+                    onClick={() => setSort("markPx")} align="right" />
+                <Th label="24h" active={sortKey === "change24hPct"}
+                    dir={sortKey === "change24hPct" ? sortDir : null}
+                    onClick={() => setSort("change24hPct")} align="right" />
+                <Th label="Funding (1h)" active={sortKey === "funding"}
+                    dir={sortKey === "funding" ? sortDir : null}
+                    onClick={() => setSort("funding")} align="right" />
+                <Th label="OI" active={sortKey === "openInterestNotional"}
+                    dir={sortKey === "openInterestNotional" ? sortDir : null}
+                    onClick={() => setSort("openInterestNotional")} align="right" />
+                <Th label="24h Volume" active={sortKey === "dayNtlVlm"}
+                    dir={sortKey === "dayNtlVlm" ? sortDir : null}
+                    onClick={() => setSort("dayNtlVlm")} align="right" />
+                <Th label="Max Lev" active={sortKey === "maxLeverage"}
+                    dir={sortKey === "maxLeverage" ? sortDir : null}
+                    onClick={() => setSort("maxLeverage")} align="right" />
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filteredMarkets?.map((m) => (
+                <MarketRow key={m.symbol} market={m} />
+              ))}
+              {filteredMarkets?.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center text-ink-faint">
+                    no pairs match &quot;{search}&quot;
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-function Th({
-  label,
-  active,
-  dir,
-  onClick,
-  align,
-}: {
+function Th({ label, active, dir, onClick, align }: {
   label: string;
   active: boolean;
   dir: SortDir | null;
@@ -242,9 +262,11 @@ function Th({
 function MarketRow({ market }: { market: Market }) {
   const isUp = market.change24hPct >= 0;
   const fundingPositive = market.funding >= 0;
-
   return (
     <tr className="border-b border-bg-line/50 transition-colors hover:bg-bg-panel">
+      <td className="w-8 px-2 py-3">
+        <WatchlistStar symbol={market.symbol} size="sm" />
+      </td>
       <td className="px-4 py-3">
         <Link
           href={`/markets/${market.symbol}`}
@@ -256,47 +278,24 @@ function MarketRow({ market }: { market: Market }) {
           </span>
         </Link>
       </td>
-      <td className="px-4 py-3 text-right text-ink">
-        ${formatPrice(market.markPx)}
+      <td className="px-4 py-3 text-right text-ink">${formatPrice(market.markPx)}</td>
+      <td className={`px-4 py-3 text-right ${isUp ? "text-signal" : "text-[#ff6b6b]"}`}>
+        {isUp ? "+" : ""}{market.change24hPct.toFixed(2)}%
       </td>
-      <td
-        className={`px-4 py-3 text-right ${
-          isUp ? "text-signal" : "text-[#ff6b6b]"
-        }`}
-      >
-        {isUp ? "+" : ""}
-        {market.change24hPct.toFixed(2)}%
+      <td className={`px-4 py-3 text-right ${fundingPositive ? "text-signal" : "text-[#ff6b6b]"}`}>
+        {fundingPositive ? "+" : ""}{(market.funding * 100).toFixed(4)}%
+        <div className="text-[10px] text-ink-faint">{market.fundingApr.toFixed(1)}% APR</div>
       </td>
-      <td
-        className={`px-4 py-3 text-right ${
-          fundingPositive ? "text-signal" : "text-[#ff6b6b]"
-        }`}
-      >
-        {fundingPositive ? "+" : ""}
-        {(market.funding * 100).toFixed(4)}%
-        <div className="text-[10px] text-ink-faint">
-          {market.fundingApr.toFixed(1)}% APR
-        </div>
-      </td>
-      <td className="px-4 py-3 text-right text-ink">
-        ${formatCompact(market.openInterestNotional)}
-      </td>
-      <td className="px-4 py-3 text-right text-ink">
-        ${formatCompact(market.dayNtlVlm)}
-      </td>
-      <td className="px-4 py-3 text-right text-ink-mute">
-        {market.maxLeverage}x
-      </td>
+      <td className="px-4 py-3 text-right text-ink">${formatCompact(market.openInterestNotional)}</td>
+      <td className="px-4 py-3 text-right text-ink">${formatCompact(market.dayNtlVlm)}</td>
+      <td className="px-4 py-3 text-right text-ink-mute">{market.maxLeverage}x</td>
     </tr>
   );
 }
 
 function formatPrice(price: number): string {
   if (price >= 1000) {
-    return price.toLocaleString("en-US", {
-      minimumFractionDigits: 1,
-      maximumFractionDigits: 1,
-    });
+    return price.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   }
   if (price >= 100) return price.toFixed(2);
   if (price >= 1) return price.toFixed(3);
