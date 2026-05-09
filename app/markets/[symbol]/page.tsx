@@ -6,6 +6,7 @@ import { PriceTicker } from "@/components/PriceTicker";
 import { MarketHeader } from "@/components/MarketHeader";
 import { MarketStats } from "@/components/MarketStats";
 import { PriceChart } from "@/components/PriceChart";
+import { FundingHistory } from "@/components/FundingHistory";
 import { getMeta } from "@/lib/hyperliquid/client";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +82,13 @@ export default async function MarketDetailPage({ params }: Props) {
         </div>
       </section>
 
+      {/* Funding history */}
+      <section className="border-b border-bg-line">
+        <div className="mx-auto max-w-7xl px-6 py-8 md:px-10 md:py-10">
+          <FundingHistory symbol={symbol} />
+        </div>
+      </section>
+
       {/* Coming-next teaser */}
       <section className="border-b border-bg-line">
         <div className="mx-auto max-w-7xl px-6 py-10 md:px-10 md:py-14">
@@ -88,14 +96,15 @@ export default async function MarketDetailPage({ params }: Props) {
             [ COMING NEXT ]
           </div>
           <h2 className="mt-4 font-sans text-[24px] font-medium leading-tight text-ink md:text-[32px]">
-            Order flow, liquidations, and trigger rules
+            Liquidations, smart-money positions,
             <br />
-            <span className="text-ink-mute">arrive in M2.</span>
+            <span className="text-ink-mute">and one-click execution.</span>
           </h2>
           <p className="mt-4 max-w-2xl text-[14px] leading-[1.6] text-ink-mute md:text-[15px]">
-            CVD, long/short ratio, liquidation heatmap, and the visual rule
-            builder for {symbol} land in the next milestone. Today: live
-            funding, open interest, and 24h volume — straight from Hyperliquid.
+            Real-time liquidation feed (M1), top trader positions on
+            Hyperliquid (M3-M4), and one-click order execution via your
+            connected wallet (M3). Today: live funding history, open
+            interest, and 24h volume — straight from Hyperliquid.
           </p>
         </div>
       </section>

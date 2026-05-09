@@ -178,3 +178,52 @@ export async function getCandles(
   }
   return res.json();
 }
+
+/**
+ * Single funding history entry from Hyperliquid.
+ *
+ *   coin           → symbol (e.g. "BTC")
+ *   fundingRate    → funding rate as string (e.g. "0.0000125" = 0.00125%/h)
+ *   premium        → mark - oracle / oracle at funding time
+ *   time           → timestamp in milliseconds
+ */
+export type FundingHistoryEntry = {
+  coin: string;
+  fundingRate: string;
+  premium: string;
+  time: number;
+};
+
+/**
+ * Fetch hourly funding rate history for a pair.
+ *
+ * Hyperliquid pays funding every hour. This endpoint returns historical
+ * funding rates between startTime and endTime (defaults to last 7 days).
+ *
+ * Most recent entries first? — Actually Hyperliquid returns them in
+ * chronological order (oldest first). We sort at use site if needed.
+ */
+export async function getFundingHistory(
+  symbol: string,
+  startTimeMs: number,
+  endTimeMs?: number
+): Promise<FundingHistoryEntry[]> {
+  const body: Record<string, unknown> = {
+    type: "fundingHistory",
+    coin: symbol,
+    startTime: startTimeMs,
+  };
+  if (endTimeMs !== undefined) body.endTime = endTimeMs;
+
+  const res = await fetch(`${API_URL}/info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    next: { revalidate: 60 }, // 1 min cache
+  });
+
+  if (!res.ok) {
+    throw new Error(`Hyperliquid fundingHistory failed: ${res.status}`);
+  }
+  return res.json();
+}
