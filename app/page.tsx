@@ -109,23 +109,49 @@ export default function HomePage() {
           [ WHAT'S BEING BUILT ]
         </div>
         <div className="grid grid-cols-1 gap-px bg-bg-line md:grid-cols-3">
-          {capabilities.map((cap, idx) => (
-            <div
-              key={cap.title}
-              className="fade-up bg-bg p-7"
-              style={{ animationDelay: `${0.7 + idx * 0.08}s` }}
-            >
-              <div className="font-mono text-[10px] uppercase tracking-widest text-signal-dim">
-                {cap.tag}
+          {capabilities.map((cap, idx) => {
+            const cardClass =
+              "fade-up bg-bg p-7 transition-colors" +
+              (cap.href ? " group hover:bg-bg-panel cursor-pointer" : "");
+            const inner = (
+              <>
+                <div className="flex items-start justify-between">
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-signal-dim">
+                    {cap.tag}
+                  </div>
+                  {cap.href && (
+                    <span className="font-mono text-[11px] text-ink-faint transition-colors group-hover:text-signal">
+                      live →
+                    </span>
+                  )}
+                </div>
+                <h3 className="mt-4 text-[20px] font-medium leading-tight text-ink">
+                  {cap.title}
+                </h3>
+                <p className="mt-3 text-[14px] leading-[1.6] text-ink-mute">
+                  {cap.body}
+                </p>
+              </>
+            );
+            return cap.href ? (
+              <Link
+                key={cap.title}
+                href={cap.href}
+                className={cardClass}
+                style={{ animationDelay: `${0.7 + idx * 0.08}s` }}
+              >
+                {inner}
+              </Link>
+            ) : (
+              <div
+                key={cap.title}
+                className={cardClass}
+                style={{ animationDelay: `${0.7 + idx * 0.08}s` }}
+              >
+                {inner}
               </div>
-              <h3 className="mt-4 text-[20px] font-medium leading-tight text-ink">
-                {cap.title}
-              </h3>
-              <p className="mt-3 text-[14px] leading-[1.6] text-ink-mute">
-                {cap.body}
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
@@ -144,6 +170,12 @@ export default function HomePage() {
               /markets
             </Link>
             <Link
+              href="/rules"
+              className="text-ink hover:text-signal transition-colors"
+            >
+              /rules
+            </Link>
+            <Link
               href="/api/v1/health"
               className="text-ink hover:text-signal transition-colors"
             >
@@ -160,18 +192,25 @@ export default function HomePage() {
   );
 }
 
-const capabilities = [
+const capabilities: Array<{
+  tag: string;
+  title: string;
+  body: string;
+  href?: string;
+}> = [
   {
     tag: "01 / DATA",
     title: "Live order flow on every pair",
     body:
-      "Funding rate, open interest, long/short ratio, liquidations, CVD — all 30+ pairs, sub-second latency, straight from Hyperliquid.",
+      "Funding rate, open interest, 24h volume, premium — 230+ Hyperliquid perps, sortable, refreshed every 5 seconds.",
+    href: "/markets",
   },
   {
     tag: "02 / RULES",
     title: "Compose triggers without code",
     body:
-      "Combine price, funding, order flow, on-chain signals, and macro indicators with AND/OR logic. No Python. No webhooks.",
+      "Combine price, funding, order flow, and macro indicators with AND/OR logic. No Python. No webhooks. Preview live.",
+    href: "/rules",
   },
   {
     tag: "03 / EXECUTION",
