@@ -69,9 +69,18 @@ export default function HomePage() {
 
         {/* CTA / status row */}
         <div
-          className="fade-up mt-14 flex flex-col gap-6 md:flex-row md:items-center md:gap-8"
+          className="fade-up mt-14 flex flex-col gap-4 md:flex-row md:items-center md:gap-6"
           style={{ animationDelay: "0.45s" }}
         >
+          <Link
+            href="/markets"
+            className="group inline-flex items-center gap-3 border border-signal bg-signal/5 px-5 py-3 font-mono text-[13px] uppercase tracking-widest text-signal transition-colors hover:bg-signal hover:text-bg"
+          >
+            <span>Explore markets</span>
+            <span className="transition-transform group-hover:translate-x-1">
+              →
+            </span>
+          </Link>
           <div className="inline-flex items-center gap-3 border border-bg-line bg-bg-panel/60 px-5 py-3 font-mono text-[13px] backdrop-blur-sm">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal opacity-75" />
@@ -82,9 +91,12 @@ export default function HomePage() {
             <span className="text-ink-mute">building</span>
             <span className="cursor text-signal" />
           </div>
-          <div className="font-mono text-[12px] uppercase tracking-widest text-ink-faint">
-            Closed alpha — Q1 2026
-          </div>
+        </div>
+        <div
+          className="fade-up mt-4 font-mono text-[12px] uppercase tracking-widest text-ink-faint"
+          style={{ animationDelay: "0.5s" }}
+        >
+          Closed alpha — Q1 2026
         </div>
       </section>
 
@@ -124,8 +136,13 @@ export default function HomePage() {
             <span>BACKEND</span>
             <span className="text-ink">Hyperliquid</span>
           </div>
-          <div className="hidden items-center gap-4 md:flex">
-            <span>API</span>
+          <div className="hidden items-center gap-6 md:flex">
+            <Link
+              href="/markets"
+              className="text-ink hover:text-signal transition-colors"
+            >
+              /markets
+            </Link>
             <Link
               href="/api/v1/health"
               className="text-ink hover:text-signal transition-colors"
