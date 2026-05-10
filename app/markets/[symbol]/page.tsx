@@ -6,6 +6,7 @@ import { PriceTicker } from "@/components/PriceTicker";
 import { MarketHeader } from "@/components/MarketHeader";
 import { MarketStats } from "@/components/MarketStats";
 import { PriceChart } from "@/components/PriceChart";
+import { CandleChartPreview } from "@/components/CandleChartPreview";
 import { FundingHistory } from "@/components/FundingHistory";
 import { getMeta } from "@/lib/hyperliquid/client";
 
@@ -79,6 +80,15 @@ export default async function MarketDetailPage({ params }: Props) {
       <section className="border-b border-bg-line bg-bg-deep">
         <div className="mx-auto max-w-7xl px-2 py-4 md:px-6 md:py-6">
           <PriceChart symbol={symbol} />
+        </div>
+      </section>
+
+      {/* M1 preview: self-hosted candle chart stub.
+          Renders below the TradingView iframe for side-by-side comparison.
+          Real Hyperliquid data integration deferred to M1. */}
+      <section className="border-b border-bg-line">
+        <div className="mx-auto max-w-7xl px-2 py-4 md:px-6 md:py-6">
+          <CandleChartPreview symbol={symbol} />
         </div>
       </section>
 
