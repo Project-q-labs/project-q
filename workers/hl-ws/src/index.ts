@@ -1,26 +1,35 @@
 /**
- * Hyperliquid WebSocket worker — Day 8 PM PoC.
+ * Hyperliquid WebSocket worker.
  *
  * Connects to wss://api.hyperliquid.xyz/ws, subscribes to trade and BBO
  * feeds for a small set of high-volume pairs, and prints stats every
  * 10 seconds.
  *
- * Run locally with:
+ * Day 8 PM: connect, subscribe, log.
+ * Day 9 AM: reconnect-with-backoff, resubscribe, /healthz endpoint.  ← we are here
+ * Day 9 PM: persist liquidations to Supabase (TBD).
+ * Day 12 PM: deploy to Fly.io.
+ *
+ * Run locally:
  *   cd workers/hl-ws
  *   npm install
  *   npm run dev
  *
- * Day 9 will add: reconnect-with-backoff, resubscribe, healthz endpoint,
- * Supabase persistence for liquidations.
- *
- * Day 12 will deploy this to Fly.io for 24/7 operation.
+ * Healthz:
+ *   curl http://localhost:8080/healthz
  */
 import { HlWsClient } from "./client";
+import { startHealthzServer } from "./healthz";
 
 const COINS = ["BTC", "ETH", "SOL", "HYPE"] as const;
+const HEALTHZ_PORT = parseInt(process.env.PORT ?? "8080", 10);
 
 async function main() {
-  log("worker.start", { coins: COINS, ws_url: "wss://api.hyperliquid.xyz/ws" });
+  log("worker.start", {
+    coins: COINS,
+    ws_url: "wss://api.hyperliquid.xyz/ws",
+    healthz_port: HEALTHZ_PORT,
+  });
 
   // Per-pair counters for the periodic stats line
   const tradeCounts = new Map<string, number>();
@@ -33,9 +42,6 @@ async function main() {
   const lastPx = new Map<string, number>();
 
   const client = new HlWsClient({
-    onOpen: () => {
-      // Re-subscribe to everything after open
-    },
     onSubscribed: (sub) => {
       log("subscribed", sub as Record<string, unknown>);
     },
@@ -43,20 +49,26 @@ async function main() {
       tradeCounts.set(coin, (tradeCounts.get(coin) ?? 0) + 1);
       lastPx.set(coin, parseFloat(trade.px));
     },
-    onBbo: (coin, bid, ask, _time) => {
+    onBbo: (coin, _bid, _ask, _time) => {
       bboCounts.set(coin, (bboCounts.get(coin) ?? 0) + 1);
-      // Optional: track spread
-      void bid;
-      void ask;
     },
     onError: (err) => {
       log("error", { message: err instanceof Error ? err.message : String(err) });
     },
     onClose: () => {
-      log("connection.closed", {});
-      // Day 9 will reconnect here
+      log("connection.closed");
+    },
+    onReconnect: (attempt, delayMs) => {
+      log("reconnecting", { attempt, delayMs });
+    },
+    onOpen: () => {
+      log("connection.open");
     },
   });
+
+  // Start /healthz BEFORE the WS connects, so health probes work immediately.
+  // Initially unhealthy (WS not open yet) — Fly.io will tolerate during boot.
+  const healthServer = startHealthzServer(client, HEALTHZ_PORT);
 
   await client.connect();
 
@@ -81,6 +93,7 @@ async function main() {
       uptimeS: Math.floor(stats.uptimeMs / 1000),
       totalMsgs: stats.messageCount,
       isOpen: stats.isOpen,
+      reconnects: stats.reconnectAttempts,
       coins: lines.join(" · "),
     });
   }, 10_000);
@@ -90,7 +103,9 @@ async function main() {
     log("shutdown", { signal: sig });
     clearInterval(statsInterval);
     client.close();
-    process.exit(0);
+    healthServer.close(() => process.exit(0));
+    // Force exit if server doesn't close in 5s
+    setTimeout(() => process.exit(0), 5_000).unref();
   };
   process.on("SIGINT", shutdown("SIGINT"));
   process.on("SIGTERM", shutdown("SIGTERM"));
