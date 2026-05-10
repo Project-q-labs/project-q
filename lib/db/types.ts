@@ -48,8 +48,12 @@ export type RuleSpec = {
 
 export type RuleRow = {
   id: string;
-  userId: string;
+  userId: string | null; // null for system rules
   name: string;
+  /** Stable string id for system rules; null for user rules. */
+  slug: string | null;
+  /** True for Project Q-curated example rules; false for user-owned rules. */
+  isSystemRule: boolean;
   spec: RuleSpec;
   isActive: boolean;
   isExecutable: boolean;

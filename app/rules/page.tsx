@@ -3,7 +3,8 @@ import Link from "next/link";
 
 import { PriceTicker } from "@/components/PriceTicker";
 import { RuleCard } from "@/components/RuleCard";
-import { EXAMPLE_RULES } from "@/lib/rules/examples";
+import { EXAMPLE_RULES, dbRowToExampleRule, type ExampleRule } from "@/lib/rules/examples";
+import { listSystemRules } from "@/lib/db/rules";
 
 export const metadata: Metadata = {
   title: "Rules · Project Q",
@@ -12,7 +13,36 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RulesPreviewPage() {
+// Render at request time so DB updates show immediately
+export const dynamic = "force-dynamic";
+
+/**
+ * Fetch system rules from the DB.
+ * Falls back to the hardcoded EXAMPLE_RULES if the DB call fails or
+ * returns nothing — keeps the /rules page working even before the
+ * 0002 migration has been run, or if Supabase has a hiccup.
+ */
+async function loadRules(): Promise<{ rules: ExampleRule[]; source: "db" | "fallback" }> {
+  try {
+    const rows = await listSystemRules();
+    if (rows.length === 0) return { rules: EXAMPLE_RULES, source: "fallback" };
+    const mapped = rows
+      .map((r) =>
+        dbRowToExampleRule({ id: r.id, slug: r.slug, name: r.name, spec: r.spec }),
+      )
+      .filter((r): r is ExampleRule => r !== null);
+    if (mapped.length === 0) return { rules: EXAMPLE_RULES, source: "fallback" };
+    return { rules: mapped, source: "db" };
+  } catch (err) {
+    // Don't break the page on DB errors; log for Sentry once that's verified.
+    console.error("Failed to load system rules from DB, using fallback:", err);
+    return { rules: EXAMPLE_RULES, source: "fallback" };
+  }
+}
+
+export default async function RulesPreviewPage() {
+  const { rules, source } = await loadRules();
+
   return (
     <main className="relative min-h-screen bg-bg text-ink">
       {/* Live ticker */}
@@ -55,6 +85,12 @@ export default function RulesPreviewPage() {
             <span className="text-ink-faint">PREVIEW MODE</span>
             <span className="text-ink-faint">·</span>
             <span className="text-ink-mute">no execution · no signup</span>
+            {source === "db" && (
+              <>
+                <span className="text-ink-faint">·</span>
+                <span className="text-signal">db</span>
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -63,7 +99,7 @@ export default function RulesPreviewPage() {
       <section className="border-b border-bg-line">
         <div className="mx-auto max-w-7xl">
           <div className="grid grid-cols-1 gap-px bg-bg-line md:grid-cols-2 lg:grid-cols-3">
-            {EXAMPLE_RULES.map((rule) => (
+            {rules.map((rule) => (
               <RuleCard key={rule.id} rule={rule} />
             ))}
           </div>

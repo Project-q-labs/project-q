@@ -230,3 +230,53 @@ function formatCompact(n: number): string {
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
   return n.toFixed(0);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DB → ExampleRule mapping
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Convert a DB row from the `rules` table (system rule) into the
+ * ExampleRule shape used by the /rules page renderer.
+ *
+ * Falls through to the hardcoded EXAMPLE_RULES when DB conversion fails
+ * (handled by the caller, not here).
+ */
+export function dbRowToExampleRule(row: {
+  id: string;
+  slug: string | null;
+  name: string;
+  spec: unknown;
+}): ExampleRule | null {
+  const spec = row.spec as Record<string, unknown> | null;
+  if (!spec) return null;
+
+  const category = spec.category;
+  const combinator = spec.combinator;
+  const conditions = spec.conditions;
+  const action = spec.action as Record<string, unknown> | undefined;
+
+  if (
+    typeof category !== "string" ||
+    typeof combinator !== "string" ||
+    !Array.isArray(conditions) ||
+    !action
+  ) {
+    return null;
+  }
+
+  // Use the slug as the stable id (matches hardcoded EXAMPLE_RULES.id),
+  // falling back to the DB UUID if slug is missing.
+  const id = row.slug ?? row.id;
+
+  return {
+    id,
+    category: category as ExampleRule["category"],
+    combinator: combinator as "AND" | "OR",
+    conditions: conditions as Condition[],
+    action: {
+      side: action.side as RuleAction["side"],
+      description: (action.description as string) ?? "",
+    },
+  };
+}

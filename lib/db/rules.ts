@@ -161,12 +161,34 @@ export async function listAllActiveRules(): Promise<RuleRow[]> {
   return (data ?? []).map(rowToRule);
 }
 
+/**
+ * List all system-curated rules (the /rules preview seed).
+ *
+ * System rules have user_id IS NULL and is_system_rule = true.
+ * They're shown to everyone on /rules and serve as templates that users
+ * will fork in M2 ("use as template").
+ */
+export async function listSystemRules(): Promise<RuleRow[]> {
+  const client = createServerClient();
+  const { data, error } = await client
+    .from(TABLE)
+    .select("*")
+    .eq("is_system_rule", true)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+
+  if (error) throw new Error(`listSystemRules: ${error.message}`);
+  return (data ?? []).map(rowToRule);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 function rowToRule(row: Record<string, unknown>): RuleRow {
   return {
     id: row.id as string,
-    userId: row.user_id as string,
+    userId: (row.user_id as string | null) ?? null,
     name: row.name as string,
+    slug: (row.slug as string | null) ?? null,
+    isSystemRule: (row.is_system_rule as boolean) ?? false,
     spec: row.spec as RuleSpec,
     isActive: row.is_active as boolean,
     isExecutable: row.is_executable as boolean,
