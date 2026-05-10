@@ -23,10 +23,11 @@ export function PriceChart({ symbol }: Props) {
   const tvId = `tv-chart-${symbol.toLowerCase()}`;
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     // Clean up any prior widget
-    containerRef.current.innerHTML = "";
+    container.innerHTML = "";
 
     const script = document.createElement("script");
     script.src =
@@ -57,10 +58,10 @@ export function PriceChart({ symbol }: Props) {
       container_id: tvId,
     });
 
-    containerRef.current.appendChild(script);
+    container.appendChild(script);
 
     return () => {
-      if (containerRef.current) containerRef.current.innerHTML = "";
+      container.innerHTML = "";
     };
   }, [symbol, tvId]);
 
