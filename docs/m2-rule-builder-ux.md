@@ -3,6 +3,7 @@
 > **Status**: UX wireframe (W2 Day 13, revised after Flow B clarification + business model alignment).
 > **Build target**: M2 (W5-W6) for the builder UI; M3 (W7-W8) for the trade screen and execution path.
 > **Anchored to**: Day 10 AM order execution split (Flow A conditional / Flow B triggered), Day 10 PM SDK choice (`@nktkas/hyperliquid`), Day 11 AM system rule seeding.
+> **Live preview**: `/preview/rule-builder` — interactive mockup for design validation. No save, no execution.
 
 ## What we're designing
 
