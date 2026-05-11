@@ -1,10 +1,76 @@
 # Trade Page UX — Design Memo
 
-> **Status**: UX design (W2 Day 13, v3 — major redesign after founder review).
+> **Status**: UX design (W2 Day 13, v4 — Hyperliquid baseline + trigger differentiation).
 > **Build target**: M1 (W3-W4) for foundation; M2 (W5-W6) for trigger panel; M3 (W7-W8) for execution.
 > **Anchored to**: Day 10 AM order execution split, Day 10 PM SDK (`@nktkas/hyperliquid`), Day 11 AM system rule seeding.
 > **Live preview**: `/preview/trade` — interactive mockup.
-> **Supersedes**: v1 and v2 of this document (separate rule builder page concept) — that approach is rejected.
+> **Supersedes**: v1, v2, v3 — earlier iterations.
+
+## Development philosophy — "Hyperliquid baseline, trigger differentiation"
+
+The most important decision in v4 is not a layout choice — it's a **development philosophy**:
+
+> **Adopt Hyperliquid's UI/UX wholesale as our V1 baseline. Add only what makes us different: trigger-based trading. Validate with alpha users. Iterate based on their actual behavior, not our design intuition.**
+
+### Why this beats "design from scratch"
+
+1. **Hyperliquid users are our primary persona** — they already know this interface. Zero learning curve for 95% of the UI.
+2. **Design decisions deferred to data, not opinion** — we don't pre-optimize what we can't validate. Alpha users show us where the friction lives.
+3. **Engineering velocity** — copying a known-good pattern is faster than inventing one. Time saved goes into the trigger engine, our real differentiator.
+4. **Honest positioning** — we're not "the better Hyperliquid UI." We're "Hyperliquid + trigger-based trading."
+
+### The 95/5 split
+
+**95% Hyperliquid baseline (we don't innovate here)**:
+- Top nav layout, menu items, button positions
+- Pair selector + stats row format
+- Margin mode toggle (Cross/10x/Classic)
+- Chart placement and controls
+- Order panel structure (direction, size, slippage, fees, reduce-only, TP/SL)
+- Bottom tabs naming and order
+- Mobile Bottom Tab Bar (Markets/Trade/Account)
+- Markets sub-tab pattern
+- Trade → Connect sheet
+- Account → Equity + Perps Overview + Deposit/Withdraw
+
+**5% Our differentiation (this is what we optimize)**:
+- Signals replace order book content in middle column (desktop) and in middle sub-tab (mobile)
+- Trigger as a third order type tab alongside Market/Limit
+- Trigger History as a new bottom tab (desktop)
+- Click signal → auto-add trigger condition (cross-tab interaction)
+
+### Alpha learning plan
+
+We **don't decide** the following pre-alpha. We let user behavior tell us:
+- Are users naturally finding the Trigger tab, or do we need education?
+- How many conditions do power users want (V1 cap is 3)?
+- Which signals are most clicked-as-trigger?
+- Do mobile users prefer to build triggers on mobile, or just view alerts there?
+- Is "Trigger History" tab heavily used, or does Telegram suffice?
+
+These answers from 25 alpha users (W11-W12) reshape M5+ priorities. Until then, **we do not pre-optimize** — we ship the Hyperliquid baseline + trigger differentiation, and learn.
+
+## v4 change (post-screenshot review)
+
+The user reviewed v3 mockup and confirmed the layout structure should match Hyperliquid's exactly. Reasoning: Hyperliquid users land on our app and recognize the interface within 5 seconds. Zero learning curve for the 95% of UI that isn't our differentiation. The 5% that differs is precisely what makes us valuable.
+
+**Decisions locked in v4**:
+1. **Top nav menu (desktop)**: 4 items only — Trade, Portfolio, Referrals, Leaderboard
+2. **Top right corner**: Connect button, language toggle (🌐), settings (⚙️) — same as Hyperliquid
+3. **Pair header row**: Same format — Pair selector | 10x | Mark | Oracle | 24h Change | 24h Volume | OI | Funding/Countdown, with Cross/10x/Classic margin mode toggle on the right
+4. **Main layout 3 columns** — same proportions as Hyperliquid:
+   - Left (~55%): Chart with timeframe + indicators + tools
+   - Middle (~20%): "Order Book area" — but **WE REPLACE with Signals** (our differentiation)
+   - Right (~25%): Order panel with Market/Limit/**Trigger** tabs (Trigger replaces "Pro")
+5. **Bottom tabs (desktop)**: Same as Hyperliquid — Balances, Positions, Outcomes, Open Orders, TWAP, Trade History, Funding History, Order History — **plus new "Trigger History" tab** (our differentiation)
+6. **Mobile pattern — Bottom Tab Bar (Hyperliquid-aligned)**:
+   - Three persistent tabs at the bottom: **Markets / Trade / Account** (same as Hyperliquid)
+   - **Markets** tab contains sub-tabs **Chart / Signal / Trigger** (our differentiation; Hyperliquid uses Chart / Order Book / Trades)
+   - **Trade** tab opens the Connect sheet (wallet connection flow, same as Hyperliquid mobile)
+   - **Account** tab shows Account Equity + Perps Overview with Deposit/Perps↔Spot/Withdraw buttons (same as Hyperliquid)
+   - This is **page-style navigation**, not bottom sheets — each tab is a full-screen page, just like Hyperliquid's mobile app
+   - Mobile header is simplified: hamburger menu (≡) + logo + Connect/🌐/⚙️ on the right
+7. The signal bar concept from v3 is replaced by signals occupying the middle column on desktop, and the **Signal sub-tab** within the Markets tab on mobile.
 
 ## What we're designing
 
@@ -45,130 +111,153 @@ By merging both intentions into one screen, we get:
 - Faster user onboarding (one screen to learn)
 - Tighter loop between observing markets and acting on them
 
-## Layout — Desktop
+## Layout — Desktop (Hyperliquid layout, our differentiation)
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│ PriceTicker (live, top)                                                  │
-├──────────────────────────────────────────────────────────────────────────┤
-│ Header: [BTC ▼ pair selector]              $80,883  +1.2% 24h           │
-├──────────────────────────────────────────────────────────────────────────┤
-│ ┌─ SIGNAL BAR ────────────────────────────────────────────────────────┐ │
-│ │ Funding APR  11.0% ↑    ━━━━━━━━●━━━━━━━━━━━━━  HIGH   rising      │ │
-│ │ Open Interest $3.42B    ━━━━━━━━━━●━━━━━━━━━━━  normal +5.2% 24h   │ │
-│ │ Liquidations $45M (1h)  ━━━━●━━━━━━━━━━━━━━━━━  low    long-heavy  │ │
-│ │ Order Flow   Buy 56%    ━━━━━━━━━●━━━━━━━━━━━━  neutral            │ │
-│ └─────────────────────────────────────────────────────────────────────┘ │
-├───────────────────────────────────────────┬──────────────────────────────┤
-│                                           │ ORDER                        │
-│ [1m][5m][15m][1h][4h][1d]   [Vol][Trig]   │ [⚪ Long]  [⚫ Short]         │
-│                                           │                              │
-│                                           │ Size: [ 5 ] %                │
-│                                           │ ~$500 at $10k equity         │
-│                                           │                              │
-│             Candle Chart                  │ Type:                        │
-│        (lightweight-charts)               │  ⚪ Market (now)             │
-│                                           │  ⚪ Limit at $___            │
-│                                           │  ● Trigger when...           │
-│                                           │                              │
-│                                           │  ┌─ WHEN ─────────────────┐  │
-│                                           │  │ BTC Funding APR > 25%  │  │
-│                                           │  │ + Add condition (max 3)│  │
-│                                           │  └────────────────────────┘  │
-│                                           │                              │
-│                                           │ Currently: 11% (won't fire)  │
-│                                           │                              │
-│                                           │ Fees: 0.085% (~$0.43)        │
-│                                           │                              │
-│                                           │ [Save as Rule]               │
-└───────────────────────────────────────────┴──────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [Logo] Trade Portfolio Referrals Leaderboard           [Connect][🌐][⚙️]   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [BTC-USDC▼][10x]  Mark | Oracle | 24h Change | Vol | OI | Funding   Cross 10x Classic │
+├────────────────────────────────────┬──────────────┬─────────────────────────┤
+│                                    │ Signals      │ [Market][Limit][Trigger]│
+│ [5m][1h][D]  Indicators       [⛶]  │ ────         │                         │
+│                                    │ FUNDING APR  │ [Buy/Long] [Sell/Short] │
+│                                    │ 11.0% ↑      │                         │
+│                                    │ ━━●━━ high   │ Available    0 USDC     │
+│  Candle Chart                      │ rising       │ Position     0 BTC      │
+│                                    │ ────         │                         │
+│                                    │ OPEN INTEREST│ Size  [0.00]      BTC   │
+│                                    │ $3.42B       │ [─────●──] [ 5 %]       │
+│                                    │ ━●━━━ normal │                         │
+│                                    │ +5.2% 24h    │ Max slippage [0.5%]     │
+│                                    │ ────         │                         │
+│                                    │ LIQ 1H       │ [ ] Reduce Only         │
+│                                    │ $45M ↓       │ [ ] Take Profit / SL    │
+│                                    │ ●━━━━ low    │                         │
+│                                    │ long-heavy   │ Liq Price        N/A    │
+│ Volume                             │ ────         │ Order Value      N/A    │
+│ ▁▁▃▄▅▆▇▅▄▃▂▁▃▄▅                    │ ORDER FLOW   │ Slippage   Est: 0%      │
+│                                    │ Buy 56%      │ Fees 0.045% + 0.040%    │
+│                                    │ ━━●━ normal  │                         │
+│ [5y][1y][6m][3m][1m][5d][1d]       │ neutral      │ [    Connect    ]       │
+│                                    │              │                         │
+│                                    │ ↳ click +trig│                         │
+├────────────────────────────────────┴──────────────┴─────────────────────────┤
+│ Balances Positions Outcomes Open Orders TWAP Trade Funding Order [TRIGGER HISTORY] │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ No open positions yet                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Three regions
+### Why this works
 
-**Region 1 — Signal Bar (top, full width)**
-- 4 rows: Funding / OI / Liquidations / Order Flow
-- Each row: name + numeric value + intensity bar + textual label + trend
-- Intensity bar uses range-appropriate scales (e.g. Funding APR 0-50%)
-- Color-coded position: green (low) → yellow (normal) → red (high/extreme)
-- **Clicking a row** pre-fills a trigger condition in the order panel based on that signal's current value
+A Hyperliquid user lands on this and the muscle memory takes over:
+- Same nav location, same pair selector position
+- Same stats row
+- Same chart-left, order-right structure
+- Same bottom tabs
 
-**Region 2 — Chart (center, takes most space)**
-- lightweight-charts v5 candlestick
-- Timeframe toggle on top: 1m / 5m / 15m / 1h / 4h / 1d
-- Overlays:
-  - Volume bars (bottom of chart)
-  - Crosshair tooltip with OHLC
-  - User's open position markers (entry, liquidation)
-  - **Trigger threshold lines** (horizontal, when user is configuring a trigger)
+They notice three subtle differences:
+1. **Middle column shows signals instead of order book** — because we're a triggers product, not a market making product
+2. **Order panel has "Trigger" as a third tab** alongside Market and Limit — our differentiation lives here
+3. **A "Trigger History" tab** at the end of the bottom tabs — to show what their rules fired and what action was taken
 
-**Region 3 — Order Panel (right, fixed width)**
-- Direction toggle: Long / Short
-- Size in % portfolio (with $ equivalent)
-- Three order types as radio:
-  - **Market (now)** — immediate execution
-  - **Limit at $___** — resting order on Hyperliquid
-  - **Trigger when...** — conditional rule, our differentiator
-- When Trigger is selected: condition builder appears with WHEN clause
-- "Currently: X (won't fire)" or "Currently: X · WOULD FIRE NOW" live indicator
-- Fee preview (Hyperliquid + Project Q transparency)
-- Action button changes by mode:
-  - Market → "Execute Now"
-  - Limit → "Place Limit Order"
-  - Trigger → "Save as Rule" (or "Execute Now" if condition already met)
+Everything else is familiar. Learning curve approaches zero. The differentiation is precisely where it should be — in the few places that matter for our value proposition.
 
-## Layout — Mobile
+## Layout — Mobile (Hyperliquid Bottom Tab Bar pattern)
 
-Mobile uses a **Bottom Sheet** pattern (Uber/Apple Maps style):
+The mobile experience follows Hyperliquid's mobile pattern exactly. Three persistent bottom tabs: **Markets / Trade / Account**. Each tab is a full-screen page, not a slide-up sheet.
 
-### Default state (chart-focused)
+### Markets tab (default)
 
 ```
 ┌─────────────────────────┐
-│ BTC ▼      $80,883 ↑   │ ← Header
+│ ≡ ●PROJECT.Q  [Connect]🌐⚙️│ ← simplified header
 ├─────────────────────────┤
-│ Fund 11%↑ ━━●━ HIGH    │ ← Signal Bar (compact)
-│ OI $3.4B  ━●━━ normal  │
-│ Liq $45M  ●━━━ low     │
-│ Flow 56%  ━━●━ neutral │
+│ BTC-USDC ▼   80,883     │ ← compact pair info
+│ 10x           -3.31%    │
+├─────────────────────────┤
+│ [Chart] [Signal][Trigger]│ ← sub-tabs
 ├─────────────────────────┤
 │                         │
+│ (Chart sub-tab):        │
+│  Candle chart           │
+│  Timeframes             │
 │                         │
-│        Chart            │ ← Chart fills most space
+│ (Signal sub-tab):       │
+│  4 signal cards         │
+│  Tap any → adds trigger │
 │                         │
+│ (Trigger sub-tab):      │
+│  Full Order panel       │
+│  Market/Limit/Trigger   │
 │                         │
-├═════════════════════════┤
-│  ▔▔▔  Trade BTC      ▲  │ ← Collapsed Bottom Sheet (60px)
+├─────────────────────────┤
+│ [Markets] Trade  Account│ ← fixed bottom tab bar
 └─────────────────────────┘
 ```
 
-### Sheet partially pulled up
+### Trade tab → Connect sheet
 
 ```
 ┌─────────────────────────┐
-│ BTC ▼      $80,883 ↑   │
-│ (Signal Bar)           │
+│ Connect                 │
+│                         │
+│ [🖥  Link Desktop Wallet]│
+│                         │
+│ [✉  Log in with Email] │
+│                         │
+│        ─── OR ───       │
+│                         │
+│ [🔵 WalletConnect      ]│
+│                         │
+│ Prefer app-like? Try    │
+│ the PWA.                │
+│                         │
 ├─────────────────────────┤
-│        Chart (smaller)  │
-├═════════════════════════┤
-│  ▔▔▔                    │
-│ [Long] [Short]          │
-│ Size: [ 5 ] %           │ ← Bottom Sheet expanded
-│ Type: ● Trigger when... │
-│                         │
-│   BTC Funding > 25%     │
-│   + Add (max 3)         │
-│                         │
-│ [Save as Rule]          │
+│  Markets [Trade] Account│
 └─────────────────────────┘
 ```
 
-The sheet expands as the user drags up or taps the handle. Chart compresses (but never disappears). Order/Trigger gets the space it needs to be fully usable.
+Identical to Hyperliquid's wallet connect screen. Three connection methods + PWA option.
 
-This works because:
-- Chart is most valuable in default state (analysis time > order time)
-- Order panel needs space only when actively placing orders
-- Bottom sheet is now a familiar mobile pattern (Uber, Apple Maps, Spotify use it)
+### Account tab → profile
+
+```
+┌─────────────────────────┐
+│ ≡ ●PROJECT.Q 0x5028…  🌐⚙️│
+├─────────────────────────┤
+│ Welcome to Project Q!   │
+│ Get started here.       │
+├─────────────────────────┤
+│ Account Equity          │
+│ Spot           $0.00    │
+│ Perps          $0.00    │
+├─────────────────────────┤
+│ Perps Overview          │
+│ Balance        $0.00    │
+│ Unrealized PNL $0.00    │
+│ Cross Margin   0.00%    │
+│ Maintenance    $0.00    │
+│ Cross Account  0.00x    │
+│                         │
+│ ┌─────────────────────┐ │
+│ │      Deposit        │ │
+│ └─────────────────────┘ │
+│ [Perps⇄Spot] [Withdraw] │
+├─────────────────────────┤
+│  Markets  Trade [Account]│
+└─────────────────────────┘
+```
+
+Identical to Hyperliquid's Account screen. Same fields, same buttons.
+
+### Why this works for V1
+
+- **Zero learning curve** — Hyperliquid mobile users already know this layout exactly
+- **Each tab is a single focus** — Markets for browsing, Trade for connecting, Account for managing
+- **Our differentiation is precisely placed** — only the Markets sub-tabs differ (Chart/Signal/Trigger vs Hyperliquid's Chart/Order Book/Trades), and Bottom Tab labels are identical
+- **PWA-friendly** — full-screen page navigation works well with home-screen install
 
 ## Signal Bar — design rationale
 
