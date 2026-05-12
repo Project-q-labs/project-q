@@ -5,11 +5,13 @@ import {
   createChart,
   CandlestickSeries,
   ColorType,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
   type Time,
   type UTCTimestamp,
+  type IPriceLine,
 } from "lightweight-charts";
 
 /**
@@ -30,9 +32,23 @@ export type CandleData = {
   close: number;
 };
 
+/**
+ * Price line for visualizing saved trigger rules on the chart.
+ * Each line has an ID so users can click and identify which rule it represents.
+ */
+export type PriceLine = {
+  id: string;
+  price: number;
+  label: string; // e.g. "Trigger: BTC > $100k"
+  color?: string;
+};
+
 type Props = {
   candles: CandleData[];
   height?: number;
+  priceLines?: PriceLine[];
+  onPriceLineClick?: (lineId: string) => void;
+  hideHeader?: boolean;
 };
 
 /**
@@ -44,10 +60,13 @@ type Props = {
  *  - Add interval toggle (1m/5m/15m/1h/4h/1d)
  *  - Add "Powered by TradingView" attribution per the library's license
  */
-export function CandleChart({ candles, height = 400 }: Props) {
+export function CandleChart({ candles, height = 400, priceLines = [], onPriceLineClick, hideHeader = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick", Time> | null>(null);
+  const priceLinesRef = useRef<Map<string, IPriceLine>>(new Map());
+  const onClickRef = useRef(onPriceLineClick);
+  onClickRef.current = onPriceLineClick;
 
   // Create chart once on mount
   useEffect(() => {
@@ -101,6 +120,7 @@ export function CandleChart({ candles, height = 400 }: Props) {
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      priceLinesRef.current = new Map();
     };
   }, [height]);
 
@@ -117,6 +137,79 @@ export function CandleChart({ candles, height = 400 }: Props) {
     seriesRef.current.setData(data);
     chartRef.current?.timeScale().fitContent();
   }, [candles]);
+
+  // Sync price lines (trigger visualizations)
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    const series = seriesRef.current;
+    const currentMap = priceLinesRef.current;
+
+    // Remove price lines that no longer exist in props
+    const incomingIds = new Set(priceLines.map((p) => p.id));
+    currentMap.forEach((line, id) => {
+      if (!incomingIds.has(id)) {
+        series.removePriceLine(line);
+        currentMap.delete(id);
+      }
+    });
+
+    // Add or update price lines
+    priceLines.forEach((p) => {
+      const existing = currentMap.get(p.id);
+      const options = {
+        price: p.price,
+        color: p.color ?? "#f59e0b", // amber-500
+        lineWidth: 2 as 1 | 2 | 3 | 4,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: p.label,
+      };
+      if (existing) {
+        existing.applyOptions(options);
+      } else {
+        const line = series.createPriceLine(options);
+        currentMap.set(p.id, line);
+      }
+    });
+  }, [priceLines]);
+
+  // Handle clicks on price lines — lightweight-charts doesn't natively support
+  // per-line click handlers, so we approximate by checking click coordinates.
+  useEffect(() => {
+    if (!chartRef.current || !seriesRef.current) return;
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+
+    const handler = (param: { point?: { x: number; y: number } }) => {
+      if (!param.point || !onClickRef.current) return;
+      const clickPrice = series.coordinateToPrice(param.point.y);
+      if (clickPrice === null) return;
+
+      // Find the nearest price line within a tolerance band
+      let nearest: { id: string; distance: number } | null = null;
+      priceLines.forEach((p) => {
+        const distance = Math.abs(p.price - Number(clickPrice));
+        const tolerance = p.price * 0.005; // 0.5%
+        if (distance < tolerance && (!nearest || distance < nearest.distance)) {
+          nearest = { id: p.id, distance };
+        }
+      });
+
+      if (nearest !== null) {
+        const found = nearest as { id: string; distance: number };
+        onClickRef.current(found.id);
+      }
+    };
+
+    chart.subscribeClick(handler);
+    return () => {
+      chart.unsubscribeClick(handler);
+    };
+  }, [priceLines]);
+
+  if (hideHeader) {
+    return <div ref={containerRef} style={{ height }} className="w-full" />;
+  }
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
