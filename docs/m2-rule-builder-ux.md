@@ -1,10 +1,80 @@
 # Trade Page UX — Design Memo
 
-> **Status**: UX design (W2 Day 13, v10 — Trigger Set marketplace preview added).
+> **Status**: UX design (W2 Day 13, v12 — 7 signal categories + cross-exchange funding + Basis + Liquidations).
 > **Build target**: M1 (W3-W4) for foundation; M2 (W5-W6) for trigger panel; M3 (W7-W8) for execution.
-> **Anchored to**: Day 10 AM order execution split, Day 10 PM SDK (`@nktkas/hyperliquid`), Day 11 AM system rule seeding.
+> **Anchored to**: Day 10 AM order execution split, Day 10 PM SDK (`@nktkas/hyperliquid`), Day 11 AM system rule seeding, **Day 13 signals-framework.md (D1-D9)**.
 > **Live preview**: `/preview/trade` and `/preview/trigger-set`.
-> **Supersedes**: v1-v9 — earlier iterations.
+> **Supersedes**: v1-v11 — earlier iterations.
+
+## v12 changes (signals framework reflection)
+
+After Day 13 research phase (signals-framework.md, 697 lines) and decisions D1-D9, the mockup is updated to reflect locked framework decisions.
+
+### Structural changes
+
+1. **Categories: 5 → 7** (5 active + 2 V2 placeholder)
+   - Was (v11): Funding / Order Flow / Order Book / On-chain / Wallet Flow
+   - **Now (v12)**: Funding / **Open Interest** (new) / Order Flow / **Liquidations** (new) / Order Book / On-chain (V2) / **HL Activity** (V2, renamed from Wallet Flow)
+
+2. **Funding category: Cross-exchange comparison added**
+   - HL vs Binance vs Bybit funding rates displayed inline (relative bars)
+   - Gap badge with bps when gap > 100 bps
+   - New trigger: `fundingGapAbove` (triggers when HL-CEX gap exceeds X bps)
+   - Data source: HL `predictedFundings` endpoint (free, no external API)
+
+3. **Open Interest category (NEW)**
+   - Total OI value
+   - 24h change %, 1h change %
+   - 24h trend sparkline
+   - Trigger: `oiChange24hAbove`
+
+4. **Liquidations category (NEW)**
+   - 1h total
+   - Long/Short split with bar visualization
+   - Largest liquidation
+   - 24h pattern sparkline
+   - Triggers: `liquidations1hAbove`, `longLiquidationsAbove`, `shortLiquidationsAbove`
+
+5. **Basis added to top stat bar**
+   - (mark - oracle) / oracle as %
+   - Visible alongside Mark / Oracle / 24h Change / Volume / OI / Funding
+
+6. **HL Activity placeholder messaging**
+   - Renamed from "Wallet Flow" to emphasize our unique edge
+   - V2 messaging: "HL-only data, not in any other dashboard"
+   - Will include: HLP vault flow, top traders, vault leaders
+
+### Trigger condition catalogue: v9 had 6 → v12 has 17
+
+```
+Price (2):           priceAbove, priceBelow
+Funding (3):         fundingAprAbove, fundingAprBelow, fundingFlip
+OI (2):              oiChange24hAbove, oiChange1hAbove
+Order Flow (3):      buyFlowAbove, largeFillDetected, netFlow5minAbove
+Liquidations (3):    liquidations1hAbove, longLiquidationsAbove, shortLiquidationsAbove
+Order Book (2):      spreadAbove, imbalanceAbove
+Cross-exchange (2):  fundingGapAbove, allExchangesCrowded
+```
+
+### Smart trigger suggestions (v12)
+
+For Funding category, if cross-exchange gap > 200 bps, a secondary "+ Trigger on Cross-exchange Gap" button appears alongside the regular trigger button. This nudges users to discover the more advanced trigger when the situation warrants it.
+
+### Builder fee update
+
+- v9: 4 bps (mentioned in alert messages)
+- **v12: 5 bps** (aligned with confirmed alpha fee policy in signals-framework.md D9)
+
+### Preserved from v9
+
+- Hyperliquid 60/20/20 column ratio (chart/signals/order)
+- Chart 600px height (roomy)
+- Trigger price line visualization on chart
+- Click line → Active Rule view + Cancel
+- Non-price trigger badges above chart
+- Mobile Bottom Tab Bar (Markets/Trade/Account)
+- Mobile sub-tabs (Chart/Signal/Trigger)
+- All v9-v11 working features
 
 ## v10 changes (Trigger Set marketplace page)
 
