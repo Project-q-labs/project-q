@@ -1,10 +1,77 @@
 # Trade Page UX — Design Memo
 
-> **Status**: UX design (W2 Day 13, v4 — Hyperliquid baseline + trigger differentiation).
+> **Status**: UX design (W2 Day 13, v10 — Trigger Set marketplace preview added).
 > **Build target**: M1 (W3-W4) for foundation; M2 (W5-W6) for trigger panel; M3 (W7-W8) for execution.
 > **Anchored to**: Day 10 AM order execution split, Day 10 PM SDK (`@nktkas/hyperliquid`), Day 11 AM system rule seeding.
-> **Live preview**: `/preview/trade` — interactive mockup.
-> **Supersedes**: v1, v2, v3 — earlier iterations.
+> **Live preview**: `/preview/trade` and `/preview/trigger-set`.
+> **Supersedes**: v1-v9 — earlier iterations.
+
+## v10 changes (Trigger Set marketplace page)
+
+A new top-level menu item **"Trigger Set"** is added to the nav (5th item after Trade / Portfolio / Referrals / Leaderboard). This is a separate page from Trade.
+
+### V1 alpha purpose
+A space where:
+- **Featured Presets** (curated by Project Q): 6 hand-picked trigger setups across funding / order flow / order book / multi-condition categories — same seed data as `/rules` (Day 11 AM)
+- **Community Triggers**: rules other users have publicly shared (mock data in alpha)
+- **My Triggers**: empty placeholder for V1 (user's own saved rules from Trade page; full integration in M2)
+
+Each card shows:
+- Source (Official badge / @username)
+- Title + description
+- When/Then clauses
+- Tags (Funding, Order Flow, Momentum, Mean Reversion, Multi-condition, etc.)
+- Difficulty (Beginner / Intermediate / Advanced)
+- Stats (uses, fires/month, likes)
+- **"Use this trigger" button** → navigates to /trade/{symbol} with rule pre-filled
+- Like button (heart icon, counts but stateless in alpha)
+
+### Filters
+- Tag filter (multi-category)
+- Difficulty filter (Beginner / Intermediate / Advanced)
+- Tabs: Featured Presets / Community / My Triggers
+
+### V2-V3 evolution path
+
+This page is the seed of what becomes the **rule marketplace** later:
+- **V2**: User-published triggers, real like/save/fork mechanics, comments
+- **V2.5**: Backtest results displayed on each card (P&L, win rate, max drawdown)
+- **V3**: **Referral integration** — trigger authors earn a share of fees when their rules are used in actual trades. Aligns with rest of Referrals system.
+- **V3+**: Leaderboard for top-performing trigger authors
+
+### Why now (alpha) vs later
+- **Now (alpha)**: Browse + use. Validate whether users actually want to share + use community rules. Cheap to ship (read-only catalogue).
+- **Later (V2+)**: Build publishing, voting, referral payouts only after demand is proven.
+
+This matches our V1 philosophy: ship the lightest version that answers the question "do users want this?". If yes, invest. If no, deprecate the section.
+
+## v9 changes (vertical spacing + trigger price lines)
+
+User reviewed v8 live mockup and provided two more refinements:
+
+1. **Vertical spacing too compact** — match Hyperliquid's roomier feel
+   - Chart height: 460 → **600px**
+   - Header padding: ~2.5 → 3 (15% more breathing room)
+   - Bottom tabs: min-height 160 → 200px
+   - Stat row gap: 5 → 6 spacing units
+   - Order panel form fields: tighter to roomier (py-1.5 → py-2)
+
+2. **Trigger visualization on chart** — saved rules need to be visible
+   - **Price-based triggers** (Price > X, Price < X) render as horizontal dashed lines on the chart with label "Trigger ↑/↓ $X"
+   - **Non-price triggers** (Funding, OI, etc.) show as small "⚡ N-cond" badges above the chart since they can't be plotted by price
+   - **Click any trigger line or badge** → Order panel switches to "Active Rule" view showing:
+     - The rule's conditions (When clause)
+     - The action (direction, size, symbol)
+     - Created timestamp
+     - **Cancel Rule button** (red, confirmation prompt)
+   - **Close × button** to return to normal Order panel
+   - Visual cue: clicked rule's line turns green; others stay amber
+
+### Why this matters
+
+Without trigger visualization, the user creates a rule and then forgets about it. With chart lines, they see at a glance what they have running, can iterate (cancel + recreate at better price), and feel confident the rule is "still alive."
+
+This is critical M2 UX — without it, alpha users lose trust in the trigger feature after a few rules.
 
 ## Development philosophy — "Hyperliquid baseline, trigger differentiation"
 
@@ -111,7 +178,52 @@ By merging both intentions into one screen, we get:
 - Faster user onboarding (one screen to learn)
 - Tighter loop between observing markets and acting on them
 
-## Layout — Desktop (Hyperliquid layout, our differentiation)
+## Signal categories — 5 expandable cards
+
+Each category has a compact header (~40px tall) showing name, summary, and status badge. Clicking expands to show rich detail.
+
+### 1. Funding
+- Summary: APR + direction
+- Expanded: 1h rate, APR, 24h avg/peak, direction, 8h sparkline
+- Trigger: `Funding APR > X%`
+
+### 2. Order Flow
+- Summary: Buy% / status
+- Expanded: Buy vs Sell volumes, net flow 5min, avg trade size, recent large fills ($300k+)
+- Trigger: `Buy Flow > X%`
+
+### 3. Order Book (replaces Hyperliquid's separate Order Book tab)
+- Summary: Spread + tightness
+- Expanded: Spread (abs + %), best bid/ask, depth at ±0.1% and ±0.5%, bid-ask imbalance
+- Trigger: `OB Imbalance > X%`, `Spread > X bps`
+- **Why this differs from Hyperliquid**: HL shows raw order book ladder; we summarize for trigger usability. Power users who want the ladder can still see depth numbers.
+
+### 4. On-chain (V2 placeholder)
+- Status: 🔒 Coming in V2
+- Will include: exchange flows, stablecoin minting, large wallet moves
+- External data via Glassnode / Arkham (integration deferred to post-PMF)
+
+### 5. Wallet Flow (V2 placeholder)
+- Status: 🔒 Coming in V2
+- Will include: whale activity, new vs returning traders, our user position distribution
+
+### UX patterns
+
+- **Default state**: all collapsed (5 headers fit in ~200px)
+- **Expand individual**: click any header
+- **Expand all**: toggle in column top
+- **Each expansion shows "+ Use as Trigger"** button at bottom
+- **V2 placeholders**: expand to show roadmap, no trigger button
+- **State shared**: expanding on desktop also expands on mobile (signal sub-tab)
+
+## Layout — Desktop (Hyperliquid 60/20/20)
+
+Hyperliquid's actual measured ratios (from screenshot reference):
+- Chart area: ~60%
+- Order Book area: ~19% (we use this slot for Signals)
+- Order Panel: ~21%
+
+Implementation: `grid-cols-[1fr_280px_320px]` on 1440px+ screens.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐

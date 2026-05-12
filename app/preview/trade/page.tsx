@@ -2,134 +2,144 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { CandleChart, generateSyntheticCandles, type CandleData } from "@/components/CandleChart";
+import { CandleChart, generateSyntheticCandles, type CandleData, type PriceLine } from "@/components/CandleChart";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 type Symbol = "BTC" | "ETH" | "SOL" | "HYPE" | "DOGE";
-type SignalKind = "funding" | "oi" | "liquidations" | "flow";
-type ConditionKind = "fundingAprAbove" | "oiAbove" | "liquidationsAbove" | "buyFlowAbove";
+type CategoryKind = "funding" | "orderFlow" | "orderBook" | "onChain" | "walletFlow";
+type ConditionKind = "fundingAprAbove" | "buyFlowAbove" | "spreadAbove" | "imbalanceAbove" | "priceAbove" | "priceBelow";
 type OrderType = "market" | "limit" | "trigger";
 type Side = "long" | "short";
 type BottomTab = "balances" | "positions" | "outcomes" | "openOrders" | "twap" | "tradeHistory" | "fundingHistory" | "orderHistory" | "triggerHistory";
 type MobileTab = "markets" | "trade" | "account";
 type MarketsSubTab = "chart" | "signal" | "trigger";
-
-type Signal = {
-  kind: SignalKind;
-  name: string;
-  display: string;
-  value: number;
-  trend: "up" | "down" | "flat";
-  intensity: number;
-  label: "low" | "normal" | "high" | "extreme";
-  context: string;
-};
+type CategoryStatus = "low" | "normal" | "high" | "extreme" | "tight" | "v2";
 
 type TriggerCondition = {
   id: string;
   kind: ConditionKind;
   threshold: number;
+  symbol: Symbol;
+};
+
+// A saved trigger rule (the user has clicked "Save as Rule")
+type SavedRule = {
+  id: string;
+  symbol: Symbol;
+  conditions: TriggerCondition[];
+  combinator: "AND" | "OR";
+  side: Side;
+  sizePct: number;
+  createdAt: number;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock data
 // ─────────────────────────────────────────────────────────────────────────────
-const SYMBOL_DATA: Record<Symbol, {
-  mark: number; oracle: number; change24h: number; volume24h: number;
-  oi: number; fundingPct: number; countdown: string; signals: Signal[];
-}> = {
+type SymbolDetail = {
+  mark: number;
+  oracle: number;
+  change24h: number;
+  volume24h: number;
+  oi: number;
+  fundingPct: number;
+  countdown: string;
+  funding: {
+    rate1h: number; apr: number; avg24h: number; peak24h: number;
+    direction: "long pays short" | "short pays long";
+    trend: "rising" | "falling" | "stable";
+    sparkline: number[]; status: CategoryStatus; summary: string;
+  };
+  orderFlow: {
+    buyPct: number; sellPct: number; buyUsd: number; sellUsd: number;
+    netUsd: number; avgTradeUsd: number;
+    largeFills: { price: number; sizeUsd: number; side: "BUY" | "SELL"; secondsAgo: number }[];
+    status: CategoryStatus; summary: string;
+  };
+  orderBook: {
+    spreadAbs: number; spreadPct: number; bestBid: number; bestAsk: number;
+    depth01: { bids: number; asks: number };
+    depth05: { bids: number; asks: number };
+    imbalance: number; status: CategoryStatus; summary: string;
+  };
+};
+
+const SYMBOL_DATA: Record<Symbol, SymbolDetail> = {
   BTC: {
     mark: 80883, oracle: 80877, change24h: -3.31, volume24h: 260622586, oi: 841009402, fundingPct: 0.0013, countdown: "00:32:36",
-    signals: [
-      { kind: "funding", name: "Funding APR", display: "11.0% APR", value: 11.0, trend: "up", intensity: 0.55, label: "high", context: "rising" },
-      { kind: "oi", name: "Open Interest", display: "$3.42B", value: 3420, trend: "up", intensity: 0.35, label: "normal", context: "+5.2% 24h" },
-      { kind: "liquidations", name: "Liq 1h", display: "$45M", value: 45, trend: "down", intensity: 0.20, label: "low", context: "long-heavy" },
-      { kind: "flow", name: "Order Flow", display: "Buy 56%", value: 56, trend: "flat", intensity: 0.50, label: "normal", context: "neutral" },
-    ],
+    funding: { rate1h: 0.0046, apr: 11.04, avg24h: 8.2, peak24h: 12.1, direction: "long pays short", trend: "rising", sparkline: [3, 4, 5, 6, 8, 9, 11], status: "high", summary: "APR 11.0% ↑ · Long pays" },
+    orderFlow: { buyPct: 56, sellPct: 44, buyUsd: 12.3e6, sellUsd: 9.7e6, netUsd: 2.6e6, avgTradeUsd: 4200,
+      largeFills: [{ price: 80883, sizeUsd: 580000, side: "BUY", secondsAgo: 0.3 }, { price: 80879, sizeUsd: 420000, side: "SELL", secondsAgo: 1.2 }, { price: 80885, sizeUsd: 380000, side: "BUY", secondsAgo: 2.8 }],
+      status: "normal", summary: "Buy 56% · neutral" },
+    orderBook: { spreadAbs: 0.001, spreadPct: 0.0024, bestBid: 80882, bestAsk: 80884, depth01: { bids: 4.2e6, asks: 3.8e6 }, depth05: { bids: 18.7e6, asks: 16.4e6 }, imbalance: 10, status: "tight", summary: "Spread 0.002% · tight" },
   },
   ETH: {
     mark: 2336, oracle: 2335, change24h: 0.72, volume24h: 142000000, oi: 280000000, fundingPct: -0.0024, countdown: "00:32:36",
-    signals: [
-      { kind: "funding", name: "Funding APR", display: "8.5% APR", value: 8.5, trend: "down", intensity: 0.35, label: "normal", context: "stable" },
-      { kind: "oi", name: "Open Interest", display: "$1.28B", value: 1280, trend: "up", intensity: 0.40, label: "normal", context: "+3.1% 24h" },
-      { kind: "liquidations", name: "Liq 1h", display: "$28M", value: 28, trend: "flat", intensity: 0.15, label: "low", context: "balanced" },
-      { kind: "flow", name: "Order Flow", display: "Buy 52%", value: 52, trend: "flat", intensity: 0.48, label: "normal", context: "neutral" },
-    ],
+    funding: { rate1h: -0.0024, apr: -8.5, avg24h: -6.2, peak24h: -10.1, direction: "short pays long", trend: "falling", sparkline: [-3, -4, -5, -6, -7, -8, -8.5], status: "normal", summary: "APR -8.5% · Short pays" },
+    orderFlow: { buyPct: 52, sellPct: 48, buyUsd: 5.6e6, sellUsd: 5.2e6, netUsd: 0.4e6, avgTradeUsd: 3100,
+      largeFills: [{ price: 2336, sizeUsd: 220000, side: "BUY", secondsAgo: 0.5 }, { price: 2335, sizeUsd: 180000, side: "SELL", secondsAgo: 2.1 }],
+      status: "normal", summary: "Buy 52% · neutral" },
+    orderBook: { spreadAbs: 0.001, spreadPct: 0.0043, bestBid: 2335, bestAsk: 2336, depth01: { bids: 1.8e6, asks: 2.1e6 }, depth05: { bids: 8.4e6, asks: 9.2e6 }, imbalance: -8, status: "tight", summary: "Spread 0.004% · ask-heavy" },
   },
   SOL: {
     mark: 95.17, oracle: 95.15, change24h: 3.4, volume24h: 89000000, oi: 156000000, fundingPct: 0.0042, countdown: "00:32:36",
-    signals: [
-      { kind: "funding", name: "Funding APR", display: "14.3% APR", value: 14.3, trend: "up", intensity: 0.60, label: "high", context: "spiking" },
-      { kind: "oi", name: "Open Interest", display: "$540M", value: 540, trend: "up", intensity: 0.55, label: "high", context: "+12% 24h" },
-      { kind: "liquidations", name: "Liq 1h", display: "$12M", value: 12, trend: "up", intensity: 0.30, label: "normal", context: "short-heavy" },
-      { kind: "flow", name: "Order Flow", display: "Buy 64%", value: 64, trend: "up", intensity: 0.68, label: "high", context: "buy-pressure" },
-    ],
+    funding: { rate1h: 0.0042, apr: 14.3, avg24h: 11.2, peak24h: 16.8, direction: "long pays short", trend: "rising", sparkline: [8, 9, 11, 12, 13, 14, 14.3], status: "high", summary: "APR 14.3% ↑ · spiking" },
+    orderFlow: { buyPct: 64, sellPct: 36, buyUsd: 4.8e6, sellUsd: 2.7e6, netUsd: 2.1e6, avgTradeUsd: 2800,
+      largeFills: [{ price: 95.17, sizeUsd: 340000, side: "BUY", secondsAgo: 0.2 }, { price: 95.15, sizeUsd: 290000, side: "BUY", secondsAgo: 1.5 }],
+      status: "high", summary: "Buy 64% · buy pressure" },
+    orderBook: { spreadAbs: 0.01, spreadPct: 0.0105, bestBid: 95.16, bestAsk: 95.17, depth01: { bids: 0.9e6, asks: 0.7e6 }, depth05: { bids: 4.2e6, asks: 3.6e6 }, imbalance: 15, status: "normal", summary: "Spread 0.01% · bid-heavy" },
   },
   HYPE: {
     mark: 41.483, oracle: 41.477, change24h: -3.31, volume24h: 260622586, oi: 841009402, fundingPct: 0.0013, countdown: "00:32:36",
-    signals: [
-      { kind: "funding", name: "Funding APR", display: "22.1% APR", value: 22.1, trend: "up", intensity: 0.78, label: "extreme", context: "very high" },
-      { kind: "oi", name: "Open Interest", display: "$760M", value: 760, trend: "up", intensity: 0.62, label: "high", context: "+18% 24h" },
-      { kind: "liquidations", name: "Liq 1h", display: "$8M", value: 8, trend: "flat", intensity: 0.10, label: "low", context: "quiet" },
-      { kind: "flow", name: "Order Flow", display: "Buy 58%", value: 58, trend: "up", intensity: 0.55, label: "normal", context: "slight buy" },
-    ],
+    funding: { rate1h: 0.0092, apr: 22.1, avg24h: 18.5, peak24h: 26.4, direction: "long pays short", trend: "rising", sparkline: [12, 14, 16, 18, 20, 21, 22.1], status: "extreme", summary: "APR 22.1% ↑ · very high" },
+    orderFlow: { buyPct: 58, sellPct: 42, buyUsd: 8.1e6, sellUsd: 5.9e6, netUsd: 2.2e6, avgTradeUsd: 3500,
+      largeFills: [{ price: 41.483, sizeUsd: 420000, side: "BUY", secondsAgo: 0.4 }],
+      status: "normal", summary: "Buy 58% · slight buy" },
+    orderBook: { spreadAbs: 0.001, spreadPct: 0.0024, bestBid: 41.482, bestAsk: 41.484, depth01: { bids: 2.1e6, asks: 1.8e6 }, depth05: { bids: 9.4e6, asks: 8.1e6 }, imbalance: 14, status: "tight", summary: "Spread 0.002% · bid-heavy" },
   },
   DOGE: {
     mark: 0.1098, oracle: 0.1097, change24h: 5.2, volume24h: 67000000, oi: 89000000, fundingPct: 0.0118, countdown: "00:32:36",
-    signals: [
-      { kind: "funding", name: "Funding APR", display: "38.7% APR", value: 38.7, trend: "up", intensity: 0.92, label: "extreme", context: "fade signal" },
-      { kind: "oi", name: "Open Interest", display: "$290M", value: 290, trend: "down", intensity: 0.30, label: "normal", context: "-2% 24h" },
-      { kind: "liquidations", name: "Liq 1h", display: "$5M", value: 5, trend: "flat", intensity: 0.08, label: "low", context: "quiet" },
-      { kind: "flow", name: "Order Flow", display: "Buy 61%", value: 61, trend: "up", intensity: 0.62, label: "high", context: "crowded long" },
-    ],
+    funding: { rate1h: 0.0161, apr: 38.7, avg24h: 32.4, peak24h: 42.1, direction: "long pays short", trend: "rising", sparkline: [25, 28, 32, 34, 36, 38, 38.7], status: "extreme", summary: "APR 38.7% ↑ · fade signal" },
+    orderFlow: { buyPct: 61, sellPct: 39, buyUsd: 3.2e6, sellUsd: 2.0e6, netUsd: 1.2e6, avgTradeUsd: 1800,
+      largeFills: [{ price: 0.1098, sizeUsd: 180000, side: "BUY", secondsAgo: 0.8 }],
+      status: "high", summary: "Buy 61% · crowded long" },
+    orderBook: { spreadAbs: 0.0001, spreadPct: 0.091, bestBid: 0.1097, bestAsk: 0.1098, depth01: { bids: 0.5e6, asks: 0.4e6 }, depth05: { bids: 2.1e6, asks: 1.8e6 }, imbalance: 11, status: "normal", summary: "Spread 0.09% · bid-heavy" },
   },
-};
-
-const SIGNAL_TO_CONDITION: Record<SignalKind, ConditionKind> = {
-  funding: "fundingAprAbove",
-  oi: "oiAbove",
-  liquidations: "liquidationsAbove",
-  flow: "buyFlowAbove",
 };
 
 const CONDITION_LABELS: Record<ConditionKind, { label: string; unit: string }> = {
   fundingAprAbove: { label: "Funding APR >", unit: "%" },
-  oiAbove: { label: "OI >", unit: "M USD" },
-  liquidationsAbove: { label: "Liq 1h >", unit: "M USD" },
   buyFlowAbove: { label: "Buy Flow >", unit: "%" },
+  spreadAbove: { label: "Spread >", unit: "bps" },
+  imbalanceAbove: { label: "OB Imbalance >", unit: "%" },
+  priceAbove: { label: "Price >", unit: "USD" },
+  priceBelow: { label: "Price <", unit: "USD" },
 };
 
-function currentValue(symbol: Symbol, kind: ConditionKind): number {
-  const signals = SYMBOL_DATA[symbol].signals;
-  switch (kind) {
-    case "fundingAprAbove": return signals.find(s => s.kind === "funding")!.value;
-    case "oiAbove": return signals.find(s => s.kind === "oi")!.value;
-    case "liquidationsAbove": return signals.find(s => s.kind === "liquidations")!.value;
-    case "buyFlowAbove": return signals.find(s => s.kind === "flow")!.value;
-  }
-}
-
-function labelColor(label: Signal["label"]) {
-  switch (label) {
-    case "low": return { text: "text-zinc-400", bar: "bg-zinc-500" };
-    case "normal": return { text: "text-blue-300", bar: "bg-blue-400" };
-    case "high": return { text: "text-amber-300", bar: "bg-amber-400" };
-    case "extreme": return { text: "text-red-300", bar: "bg-red-400" };
+function categoryColor(status: CategoryStatus) {
+  switch (status) {
+    case "low": return { text: "text-zinc-400", bg: "bg-zinc-500/10", border: "border-zinc-500/40" };
+    case "tight":
+    case "normal": return { text: "text-blue-300", bg: "bg-blue-500/10", border: "border-blue-500/30" };
+    case "high": return { text: "text-amber-300", bg: "bg-amber-500/10", border: "border-amber-500/30" };
+    case "extreme": return { text: "text-red-300", bg: "bg-red-500/10", border: "border-red-500/30" };
+    case "v2": return { text: "text-ink-faint", bg: "bg-bg-line/50", border: "border-bg-line" };
   }
 }
 
 function formatBig(n: number): string {
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}k`;
   return `$${n.toLocaleString()}`;
 }
 
 const MOCK_TRIGGER_HISTORY = [
   { time: "2026-05-11 14:23", rule: "BTC funding extreme — short", trigger: "Funding APR > 25%", fired: "11.2% (watching)", status: "watching" as const, action: undefined as string | undefined },
   { time: "2026-05-10 09:15", rule: "DOGE crowded long fade", trigger: "Funding APR > 30%", fired: "38.7% ✓ fired", status: "executed" as const, action: "Short DOGE 3% @ $0.1102" },
-  { time: "2026-05-09 18:42", rule: "SOL momentum entry", trigger: "OI 24h > 10%", fired: "12% ✓ fired", status: "executed" as const, action: "Long SOL 5% @ $94.20" },
+  { time: "2026-05-09 18:42", rule: "SOL momentum entry", trigger: "Buy Flow > 60%", fired: "64% ✓ fired", status: "executed" as const, action: "Long SOL 5% @ $94.20" },
 ];
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -138,7 +148,7 @@ const MOCK_TRIGGER_HISTORY = [
 export default function TradePreviewPage() {
   const [symbol, setSymbol] = useState<Symbol>("BTC");
   const [side, setSide] = useState<Side>("long");
-  const [sizePct, setSizePct] = useState(5);
+  const [sizePct, setSizePct] = useState(0);
   const [sizeRaw, setSizeRaw] = useState("");
   const [orderType, setOrderType] = useState<OrderType>("market");
   const [limitPrice, setLimitPrice] = useState("");
@@ -149,9 +159,25 @@ export default function TradePreviewPage() {
   const [tpsl, setTpsl] = useState(false);
   const [bottomTab, setBottomTab] = useState<BottomTab>("positions");
 
-  // Mobile-specific state
+  // Saved rules (visible as price lines on chart)
+  const [savedRules, setSavedRules] = useState<SavedRule[]>([]);
+  const [viewingRuleId, setViewingRuleId] = useState<string | null>(null); // when user clicks a chart line
+
+  // Mobile state
   const [mobileTab, setMobileTab] = useState<MobileTab>("markets");
   const [marketsSubTab, setMarketsSubTab] = useState<MarketsSubTab>("chart");
+
+  // Category expand state
+  const [expandedCategories, setExpandedCategories] = useState<Set<CategoryKind>>(new Set());
+
+  const toggleCategory = (kind: CategoryKind) => {
+    const newSet = new Set(expandedCategories);
+    if (newSet.has(kind)) newSet.delete(kind);
+    else newSet.add(kind);
+    setExpandedCategories(newSet);
+  };
+  const expandAll = () => setExpandedCategories(new Set(["funding", "orderFlow", "orderBook", "onChain", "walletFlow"]));
+  const collapseAll = () => setExpandedCategories(new Set());
 
   const [candles, setCandles] = useState<CandleData[]>([]);
   useEffect(() => {
@@ -160,121 +186,138 @@ export default function TradePreviewPage() {
 
   const data = SYMBOL_DATA[symbol];
 
-  const handleSignalClick = (signal: Signal) => {
+  const addTriggerCondition = (kind: ConditionKind, suggestedThreshold: number) => {
     if (triggerConditions.length >= 3) {
       alert("V1 alpha allows maximum 3 trigger conditions per rule.\nPro tier (V2) will extend this.");
       return;
     }
-    const newCondition: TriggerCondition = {
-      id: `c_${Math.random().toString(36).slice(2, 9)}`,
-      kind: SIGNAL_TO_CONDITION[signal.kind],
-      threshold: Math.ceil(signal.value * 1.3),
-    };
-    setTriggerConditions([...triggerConditions, newCondition]);
+    setTriggerConditions([
+      ...triggerConditions,
+      { id: `c_${Math.random().toString(36).slice(2, 9)}`, kind, threshold: suggestedThreshold, symbol },
+    ]);
     setOrderType("trigger");
-    // On mobile, switch to Trigger sub-tab to show the result
     setMarketsSubTab("trigger");
+    setViewingRuleId(null); // reset rule viewing mode
   };
 
   const triggerEvaluation = useMemo(() => {
     if (triggerConditions.length === 0) return { matches: false };
-    const results = triggerConditions.map((c) => currentValue(symbol, c.kind) > c.threshold);
-    const matches = combinator === "AND" ? results.every(Boolean) : results.some(Boolean);
-    return { matches };
-  }, [triggerConditions, combinator, symbol]);
+    const results = triggerConditions.map((c) => {
+      const sym = SYMBOL_DATA[c.symbol];
+      switch (c.kind) {
+        case "fundingAprAbove": return sym.funding.apr > c.threshold;
+        case "buyFlowAbove": return sym.orderFlow.buyPct > c.threshold;
+        case "spreadAbove": return sym.orderBook.spreadPct * 10000 > c.threshold;
+        case "imbalanceAbove": return Math.abs(sym.orderBook.imbalance) > c.threshold;
+        case "priceAbove": return sym.mark > c.threshold;
+        case "priceBelow": return sym.mark < c.threshold;
+      }
+    });
+    return { matches: combinator === "AND" ? results.every(Boolean) : results.some(Boolean) };
+  }, [triggerConditions, combinator]);
 
   const removeCondition = (id: string) => setTriggerConditions(triggerConditions.filter(c => c.id !== id));
   const updateConditionThreshold = (id: string, threshold: number) =>
     setTriggerConditions(triggerConditions.map(c => c.id === id ? { ...c, threshold } : c));
 
+  // Save current trigger config as a Rule
+  const handleSaveAsRule = () => {
+    if (triggerConditions.length === 0) {
+      alert("Add a trigger condition first.");
+      return;
+    }
+    const newRule: SavedRule = {
+      id: `rule_${Math.random().toString(36).slice(2, 9)}`,
+      symbol,
+      conditions: triggerConditions.map(c => ({ ...c })),
+      combinator,
+      side,
+      sizePct,
+      createdAt: Date.now(),
+    };
+    setSavedRules([...savedRules, newRule]);
+    // Clear current trigger config so the user can build another rule
+    setTriggerConditions([]);
+    alert(`Demo: Rule saved\n\n${newRule.conditions.length} condition(s), ${combinator}\nAction: ${side} ${sizePct}% portfolio\n\nIn M2 this saves to Supabase. The chart now shows trigger lines for price-based conditions. Click a line to view or cancel the rule.`);
+  };
+
+  const handleCancelRule = (ruleId: string) => {
+    setSavedRules(savedRules.filter(r => r.id !== ruleId));
+    if (viewingRuleId === ruleId) setViewingRuleId(null);
+  };
+
+  // Build price lines for the chart from saved rules (only price-based conditions)
+  const priceLines: PriceLine[] = useMemo(() => {
+    const lines: PriceLine[] = [];
+    savedRules
+      .filter(r => r.symbol === symbol)
+      .forEach((rule) => {
+        rule.conditions.forEach((c) => {
+          if (c.kind === "priceAbove" || c.kind === "priceBelow") {
+            lines.push({
+              id: rule.id,
+              price: c.threshold,
+              label: `Trigger ${rule.side === "long" ? "↑" : "↓"} ${c.kind === "priceAbove" ? ">" : "<"} $${c.threshold.toLocaleString()}`,
+              color: viewingRuleId === rule.id ? "#10b981" : "#f59e0b",
+            });
+          }
+        });
+      });
+    return lines;
+  }, [savedRules, symbol, viewingRuleId]);
+
+  const handlePriceLineClick = (ruleId: string) => {
+    setViewingRuleId(ruleId === viewingRuleId ? null : ruleId);
+    setOrderType("trigger");
+  };
+
+  // Rules for the current symbol that don't have price conditions (so they need a different UI cue)
+  const nonPriceRulesForSymbol = savedRules.filter(r => r.symbol === symbol && !r.conditions.some(c => c.kind === "priceAbove" || c.kind === "priceBelow"));
+
   const handleAction = () => {
-    if (orderType === "market") {
-      alert(`Demo: Market ${side} ${sizePct}% portfolio\n\nIn M3, signs with wallet → submits to Hyperliquid via @nktkas/hyperliquid SDK with 4 bps builder code.`);
-    } else if (orderType === "limit") {
-      alert(`Demo: Limit ${side} at $${limitPrice}\n\nIn M3, places a resting limit order.`);
-    } else if (orderType === "trigger") {
-      if (triggerEvaluation.matches) {
-        alert(`Demo: Conditions match.\n\nV1 shows two buttons:\n• Save as Rule\n• Execute Now`);
-      } else {
-        alert(`Demo: Save as Rule\n\n${triggerConditions.length} condition(s), ${combinator}\nAction on trigger: ${side} ${sizePct}%\n\nIn M2, saves to Supabase. Worker watches 24/7. Telegram + in-app alerts.`);
+    if (orderType === "trigger") {
+      if (triggerConditions.length === 0 && viewingRuleId === null) {
+        alert("Add a trigger condition first.");
+        return;
       }
+      if (viewingRuleId !== null) return; // we're in view mode
+      handleSaveAsRule();
+    } else {
+      alert(`Demo: ${orderType} ${side} ${sizePct}%\n\nIn M3, signs with wallet → Hyperliquid SDK with 4 bps builder code.`);
     }
   };
 
   return (
     <main className="min-h-dvh bg-bg text-ink">
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* DESKTOP — full 3-column layout (hidden below lg)           */}
-      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* ═════════════════ DESKTOP ═════════════════ */}
       <div className="hidden lg:block">
-        {/* Top nav */}
-        <header className="border-b border-bg-line">
-          <div className="flex items-center justify-between px-4 py-2.5">
-            <div className="flex items-center gap-8">
-              <Link href="/" className="flex items-center gap-2 font-mono text-sm">
-                <span className="text-signal">●</span>
-                <span className="font-medium tracking-tight">PROJECT.Q</span>
-              </Link>
-              <nav className="flex gap-6">
-                {["Trade", "Portfolio", "Referrals", "Leaderboard"].map((item) => (
-                  <a key={item} href="#" onClick={(e) => e.preventDefault()}
-                    className={`text-sm tracking-tight ${item === "Trade" ? "text-signal" : "text-ink-mute hover:text-ink"}`}>
-                    {item}
-                  </a>
-                ))}
-              </nav>
-            </div>
-            <div className="flex items-center gap-2">
-              <button className="border border-signal/60 bg-signal/10 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.15em] text-signal hover:bg-signal/20">
-                Connect
-              </button>
-              <IconButton title="Language"><GlobeIcon /></IconButton>
-              <IconButton title="Settings"><GearIcon /></IconButton>
-            </div>
-          </div>
-
-          {/* Pair header */}
-          <div className="flex items-center gap-4 overflow-x-auto border-t border-bg-line px-4 py-2.5">
-            <div className="flex items-center gap-2 shrink-0">
-              <select value={symbol} onChange={(e) => { setSymbol(e.target.value as Symbol); setTriggerConditions([]); }}
-                className="border border-bg-line bg-bg-panel px-2.5 py-1.5 font-mono text-sm outline-none focus:border-signal">
-                {(["BTC", "ETH", "SOL", "HYPE", "DOGE"] as Symbol[]).map(s => (
-                  <option key={s} value={s}>{s}-USDC</option>
-                ))}
-              </select>
-              <span className="border border-bg-line bg-bg-panel px-2 py-1.5 font-mono text-xs text-ink-mute">10x</span>
-            </div>
-            <div className="flex items-center gap-5 text-xs">
-              <Stat label="Mark" value={data.mark.toLocaleString()} />
-              <Stat label="Oracle" value={data.oracle.toLocaleString()} />
-              <Stat label="24h Change" value={`${data.change24h > 0 ? "+" : ""}${data.change24h.toFixed(2)}%`} color={data.change24h > 0 ? "text-signal" : "text-red-400"} />
-              <Stat label="24h Volume" value={formatBig(data.volume24h)} />
-              <Stat label="Open Interest" value={formatBig(data.oi)} />
-              <Stat label="Funding / Countdown" value={`${data.fundingPct.toFixed(4)}%`} sub={data.countdown} />
-            </div>
-            <div className="ml-auto flex items-center gap-px border border-bg-line shrink-0">
-              {["Cross", "10x", "Classic"].map((m, i) => (
-                <button key={m} className={`px-3 py-1 font-mono text-[11px] ${i === 0 ? "bg-bg-panel text-ink" : "text-ink-mute hover:text-ink"}`}>
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-        </header>
-
-        <div className="border-b border-bg-line bg-bg-panel/40 px-4 py-1.5">
+        <DesktopHeader symbol={symbol} setSymbol={(s) => { setSymbol(s); setTriggerConditions([]); setViewingRuleId(null); }} data={data} />
+        <div className="border-b border-bg-line bg-bg-panel/40 px-4 py-2">
           <span className="font-mono text-[11px] text-signal">▶ PREVIEW</span>
           <span className="font-mono text-[11px] text-ink-faint"> · </span>
-          <span className="font-mono text-[11px] text-ink-mute">Trade page mockup (W2 Day 13 v5) — Hyperliquid layout</span>
+          <span className="font-mono text-[11px] text-ink-mute">Trade page mockup (W2 Day 13 v9) — Hyperliquid ratio + trigger lines</span>
         </div>
 
-        {/* 3-column main */}
-        <div className="grid grid-cols-[1fr_220px_280px]">
+        <div className="grid grid-cols-[1fr_280px_320px]">
           <div className="border-r border-bg-line">
-            <ChartColumn candles={candles} symbol={symbol} />
+            <ChartColumn
+              candles={candles}
+              symbol={symbol}
+              priceLines={priceLines}
+              onPriceLineClick={handlePriceLineClick}
+              nonPriceRules={nonPriceRulesForSymbol}
+              onShowRule={handlePriceLineClick}
+            />
           </div>
           <div className="border-r border-bg-line">
-            <SignalsColumn signals={data.signals} onSignalClick={handleSignalClick} />
+            <SignalsColumn
+              data={data}
+              expandedCategories={expandedCategories}
+              onToggleCategory={toggleCategory}
+              onAddTrigger={addTriggerCondition}
+              onExpandAll={expandAll}
+              onCollapseAll={collapseAll}
+            />
           </div>
           <aside>
             <OrderColumn
@@ -293,6 +336,11 @@ export default function TradePreviewPage() {
               reduceOnly={reduceOnly} setReduceOnly={setReduceOnly}
               tpsl={tpsl} setTpsl={setTpsl}
               onAction={handleAction}
+              savedRules={savedRules}
+              viewingRuleId={viewingRuleId}
+              onCloseRuleView={() => setViewingRuleId(null)}
+              onCancelRule={handleCancelRule}
+              onAddPriceCondition={(kind, threshold) => addTriggerCondition(kind, threshold)}
             />
           </aside>
         </div>
@@ -300,49 +348,29 @@ export default function TradePreviewPage() {
         <BottomTabsArea activeTab={bottomTab} onTabChange={setBottomTab} />
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* MOBILE — Hyperliquid-style Bottom Tab Bar pattern          */}
-      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* ═════════════════ MOBILE ═════════════════ */}
       <div className="lg:hidden">
-        {/* Top header — simplified for mobile */}
-        <header className="border-b border-bg-line">
-          <div className="flex items-center justify-between px-3 py-2.5">
-            <div className="flex items-center gap-3">
-              <button className="text-ink-mute"><HamburgerIcon /></button>
-              <Link href="/" className="flex items-center gap-1.5 font-mono text-sm">
-                <span className="text-signal">●</span>
-                <span className="font-medium">PROJECT.Q</span>
-              </Link>
-            </div>
-            <div className="flex items-center gap-2">
-              {mobileTab !== "trade" && (
-                <button
-                  onClick={() => setMobileTab("trade")}
-                  className="border border-signal/60 bg-signal/10 px-3 py-1.5 font-mono text-xs uppercase text-signal"
-                >
-                  Connect
-                </button>
-              )}
-              <IconButton title="Language"><GlobeIcon /></IconButton>
-              <IconButton title="Settings"><GearIcon /></IconButton>
-            </div>
-          </div>
-        </header>
-
+        <MobileHeader showConnect={mobileTab !== "trade"} onConnectClick={() => setMobileTab("trade")} />
         <div className="border-b border-bg-line bg-bg-panel/40 px-3 py-1.5">
           <span className="font-mono text-[10px] text-signal">▶ PREVIEW</span>
           <span className="font-mono text-[10px] text-ink-faint"> · </span>
-          <span className="font-mono text-[10px] text-ink-mute">Mobile mockup (W2 Day 13 v5)</span>
+          <span className="font-mono text-[10px] text-ink-mute">Mobile (Day 13 v9)</span>
         </div>
 
-        {/* Content area — depends on mobileTab */}
-        <div className="pb-[68px]"> {/* padding for bottom tab bar */}
+        <div className="pb-[68px]">
           {mobileTab === "markets" && (
             <MobileMarkets
-              symbol={symbol} setSymbol={(s) => { setSymbol(s); setTriggerConditions([]); }}
+              symbol={symbol} setSymbol={(s) => { setSymbol(s); setTriggerConditions([]); setViewingRuleId(null); }}
               data={data} candles={candles}
+              priceLines={priceLines}
+              onPriceLineClick={handlePriceLineClick}
+              nonPriceRules={nonPriceRulesForSymbol}
               subTab={marketsSubTab} setSubTab={setMarketsSubTab}
-              onSignalClick={handleSignalClick}
+              expandedCategories={expandedCategories}
+              onToggleCategory={toggleCategory}
+              onAddTrigger={addTriggerCondition}
+              onExpandAll={expandAll}
+              onCollapseAll={collapseAll}
               side={side} setSide={setSide}
               sizePct={sizePct} setSizePct={setSizePct}
               sizeRaw={sizeRaw} setSizeRaw={setSizeRaw}
@@ -357,13 +385,17 @@ export default function TradePreviewPage() {
               reduceOnly={reduceOnly} setReduceOnly={setReduceOnly}
               tpsl={tpsl} setTpsl={setTpsl}
               onAction={handleAction}
+              savedRules={savedRules}
+              viewingRuleId={viewingRuleId}
+              onCloseRuleView={() => setViewingRuleId(null)}
+              onCancelRule={handleCancelRule}
+              onAddPriceCondition={(kind, threshold) => addTriggerCondition(kind, threshold)}
             />
           )}
           {mobileTab === "trade" && <MobileTradeConnect />}
           {mobileTab === "account" && <MobileAccount />}
         </div>
 
-        {/* Bottom Tab Bar — fixed at bottom */}
         <BottomTabBar activeTab={mobileTab} onTabChange={setMobileTab} />
       </div>
     </main>
@@ -371,8 +403,68 @@ export default function TradePreviewPage() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// SHARED PIECES
+// ICONS / SHARED
 // ═════════════════════════════════════════════════════════════════════════════
+function GlobeIcon() { return <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" strokeWidth="1.5"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" strokeWidth="1.5"/></svg>; }
+function GearIcon() { return <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" strokeWidth="1.5"/><path d="M19 12a7 7 0 01-.1 1.2l2.1 1.7-2 3.5-2.5-1a7 7 0 01-2.1 1.2l-.4 2.6h-4l-.4-2.6a7 7 0 01-2.1-1.2l-2.5 1-2-3.5 2.1-1.7A7 7 0 015 12c0-.4 0-.8.1-1.2L3 9.1l2-3.5 2.5 1a7 7 0 012.1-1.2L10 2.8h4l.4 2.6a7 7 0 012.1 1.2l2.5-1 2 3.5-2.1 1.7c.1.4.1.8.1 1.2z" strokeWidth="1.5"/></svg>; }
+function HamburgerIcon() { return <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" strokeWidth="1.5"/></svg>; }
+function ChevronDown({ rotated }: { rotated?: boolean }) { return <svg className={`h-4 w-4 transition-transform ${rotated ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" strokeWidth="2"/></svg>; }
+
+function IconButton({ children, title }: { children: React.ReactNode; title?: string }) {
+  return <button className="border border-bg-line p-1.5 text-ink-mute hover:text-ink" title={title}>{children}</button>;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DESKTOP HEADER
+// ═════════════════════════════════════════════════════════════════════════════
+function DesktopHeader({ symbol, setSymbol, data }: { symbol: Symbol; setSymbol: (s: Symbol) => void; data: SymbolDetail }) {
+  return (
+    <header className="border-b border-bg-line">
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-8">
+          <Link href="/" className="flex items-center gap-2 font-mono text-sm">
+            <span className="text-signal">●</span><span className="font-medium">PROJECT.Q</span>
+          </Link>
+          <nav className="flex gap-6">
+            <a href="#" onClick={(e) => e.preventDefault()} className="text-sm text-signal">Trade</a>
+            <a href="#" onClick={(e) => e.preventDefault()} className="text-sm text-ink-mute hover:text-ink">Portfolio</a>
+            <a href="#" onClick={(e) => e.preventDefault()} className="text-sm text-ink-mute hover:text-ink">Referrals</a>
+            <a href="#" onClick={(e) => e.preventDefault()} className="text-sm text-ink-mute hover:text-ink">Leaderboard</a>
+            <Link href="/preview/trigger-set" className="text-sm text-ink-mute hover:text-ink">Trigger Set</Link>
+          </nav>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="border border-signal/60 bg-signal/10 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.15em] text-signal hover:bg-signal/20">Connect</button>
+          <IconButton title="Language"><GlobeIcon /></IconButton>
+          <IconButton title="Settings"><GearIcon /></IconButton>
+        </div>
+      </div>
+      <div className="flex items-center gap-4 overflow-x-auto border-t border-bg-line px-4 py-3">
+        <div className="flex items-center gap-2 shrink-0">
+          <select value={symbol} onChange={(e) => setSymbol(e.target.value as Symbol)}
+            className="border border-bg-line bg-bg-panel px-3 py-2 font-mono text-sm outline-none focus:border-signal">
+            {(["BTC", "ETH", "SOL", "HYPE", "DOGE"] as Symbol[]).map(s => <option key={s} value={s}>{s}-USDC</option>)}
+          </select>
+          <span className="border border-bg-line bg-bg-panel px-2 py-2 font-mono text-xs text-ink-mute">10x</span>
+        </div>
+        <div className="flex items-center gap-6 text-xs">
+          <Stat label="Mark" value={data.mark.toLocaleString()} />
+          <Stat label="Oracle" value={data.oracle.toLocaleString()} />
+          <Stat label="24h Change" value={`${data.change24h > 0 ? "+" : ""}${data.change24h.toFixed(2)}%`} color={data.change24h > 0 ? "text-signal" : "text-red-400"} />
+          <Stat label="24h Volume" value={formatBig(data.volume24h)} />
+          <Stat label="Open Interest" value={formatBig(data.oi)} />
+          <Stat label="Funding / Countdown" value={`${data.fundingPct.toFixed(4)}%`} sub={data.countdown} />
+        </div>
+        <div className="ml-auto flex items-center gap-px border border-bg-line shrink-0">
+          {["Cross", "10x", "Classic"].map((m, i) => (
+            <button key={m} className={`px-3 py-1.5 font-mono text-[11px] ${i === 0 ? "bg-bg-panel text-ink" : "text-ink-mute hover:text-ink"}`}>{m}</button>
+          ))}
+        </div>
+      </div>
+    </header>
+  );
+}
+
 function Stat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
     <div className="flex flex-col leading-tight shrink-0">
@@ -385,117 +477,306 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
   );
 }
 
-function IconButton({ children, title }: { children: React.ReactNode; title?: string }) {
-  return (
-    <button className="border border-bg-line p-1.5 text-ink-mute hover:text-ink" title={title}>
-      {children}
-    </button>
-  );
-}
-
-function GlobeIcon() {
-  return (
-    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="9" strokeWidth="1.5"/>
-      <path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" strokeWidth="1.5"/>
-    </svg>
-  );
-}
-function GearIcon() {
-  return (
-    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="3" strokeWidth="1.5"/>
-      <path d="M19 12a7 7 0 01-.1 1.2l2.1 1.7-2 3.5-2.5-1a7 7 0 01-2.1 1.2l-.4 2.6h-4l-.4-2.6a7 7 0 01-2.1-1.2l-2.5 1-2-3.5 2.1-1.7A7 7 0 015 12c0-.4 0-.8.1-1.2L3 9.1l2-3.5 2.5 1a7 7 0 012.1-1.2L10 2.8h4l.4 2.6a7 7 0 012.1 1.2l2.5-1 2 3.5-2.1 1.7c.1.4.1.8.1 1.2z" strokeWidth="1.5"/>
-    </svg>
-  );
-}
-function HamburgerIcon() {
-  return (
-    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path d="M4 6h16M4 12h16M4 18h16" strokeWidth="1.5"/>
-    </svg>
-  );
-}
-
 // ═════════════════════════════════════════════════════════════════════════════
-// DESKTOP COMPONENTS
+// CHART COLUMN (now with trigger lines + non-price rule badges)
 // ═════════════════════════════════════════════════════════════════════════════
-function ChartColumn({ candles, symbol }: { candles: CandleData[]; symbol: Symbol }) {
+function ChartColumn({
+  candles, symbol, priceLines, onPriceLineClick, nonPriceRules, onShowRule,
+}: {
+  candles: CandleData[]; symbol: Symbol;
+  priceLines: PriceLine[];
+  onPriceLineClick: (id: string) => void;
+  nonPriceRules: SavedRule[];
+  onShowRule: (id: string) => void;
+}) {
   const [tf, setTf] = useState("1h");
   return (
-    <div className="p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-3 text-xs">
+    <div className="p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-4 text-xs">
           {["5m", "1h", "D"].map(t => (
             <button key={t} onClick={() => setTf(t)} className={`font-mono ${tf === t ? "text-ink" : "text-ink-mute hover:text-ink"}`}>{t}</button>
           ))}
           <span className="text-ink-faint">|</span>
           <button className="font-mono text-ink-mute hover:text-ink">ƒ Indicators</button>
         </div>
-        <button className="text-ink-mute hover:text-ink">
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4h6M4 4v6M20 4h-6M20 4v6M4 20h6M4 20v-6M20 20h-6M20 20v-6" strokeWidth="1.5"/></svg>
+        <div className="flex items-center gap-3">
+          {/* Non-price rule badges (e.g. funding triggers) */}
+          {nonPriceRules.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Active triggers:</span>
+              {nonPriceRules.map((rule) => (
+                <button
+                  key={rule.id}
+                  onClick={() => onShowRule(rule.id)}
+                  className="border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] text-amber-300 hover:bg-amber-500/20"
+                  title={`Show rule details (${rule.conditions.length} cond)`}
+                >
+                  ⚡ {rule.conditions.length}-cond
+                </button>
+              ))}
+            </div>
+          )}
+          <button className="text-ink-mute hover:text-ink" title="Fullscreen">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4h6M4 4v6M20 4h-6M20 4v6M4 20h6M4 20v-6M20 20h-6M20 20v-6" strokeWidth="1.5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <CandleChart
+        candles={candles}
+        height={600}
+        priceLines={priceLines}
+        onPriceLineClick={onPriceLineClick}
+        hideHeader
+      />
+
+      <div className="mt-3 flex items-center justify-between text-[11px] text-ink-mute">
+        <div className="flex gap-3 font-mono">
+          {["5y", "1y", "6m", "3m", "1m", "5d", "1d"].map(r => <button key={r} className="hover:text-ink">{r}</button>)}
+        </div>
+        <div className="flex items-center gap-3">
+          {priceLines.length > 0 && (
+            <span className="font-mono text-[10px] text-amber-300">
+              {priceLines.length} trigger line{priceLines.length > 1 ? "s" : ""} on chart — click to view
+            </span>
+          )}
+          <span className="font-mono">{symbol}-USD · Synthetic</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SIGNALS COLUMN
+// ═════════════════════════════════════════════════════════════════════════════
+type SignalsProps = {
+  data: SymbolDetail;
+  expandedCategories: Set<CategoryKind>;
+  onToggleCategory: (kind: CategoryKind) => void;
+  onAddTrigger: (kind: ConditionKind, threshold: number) => void;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
+};
+
+function SignalsColumn(props: SignalsProps) {
+  const { expandedCategories, onExpandAll, onCollapseAll } = props;
+  const allExpanded = expandedCategories.size === 5;
+  return (
+    <div className="p-4">
+      <div className="mb-3 flex items-center justify-between border-b border-bg-line pb-2.5">
+        <span className="font-mono text-xs uppercase tracking-[0.1em] text-ink">Signals</span>
+        <button onClick={allExpanded ? onCollapseAll : onExpandAll}
+          className="font-mono text-[10px] uppercase text-ink-mute hover:text-ink">
+          {allExpanded ? "Collapse all" : "Expand all"}
         </button>
       </div>
-      <CandleChart candles={candles} height={420} />
-      <div className="mt-2 flex items-center justify-between text-[11px] text-ink-mute">
-        <div className="flex gap-2 font-mono">
-          {["5y", "1y", "6m", "3m", "1m", "5d", "1d"].map(r => (
-            <button key={r} className="hover:text-ink">{r}</button>
-          ))}
-        </div>
-        <span className="font-mono">{symbol}-USD · Synthetic</span>
+      <div className="space-y-2.5">
+        <FundingCategory {...props} />
+        <OrderFlowCategory {...props} />
+        <OrderBookCategory {...props} />
+        <OnChainCategory {...props} />
+        <WalletFlowCategory {...props} />
       </div>
+      <p className="mt-4 border-t border-bg-line pt-3 font-mono text-[10px] text-ink-faint">
+        Click any signal to expand. Use "+ Trigger" inside to add as rule condition.
+      </p>
     </div>
   );
 }
 
-function SignalsColumn({ signals, onSignalClick }: { signals: Signal[]; onSignalClick: (s: Signal) => void }) {
+function CategoryHeader({ kind, name, summary, status, expanded, onToggle }: {
+  kind: CategoryKind; name: string; summary: string; status: CategoryStatus; expanded: boolean; onToggle: () => void;
+}) {
+  const c = categoryColor(status);
   return (
-    <div className="p-3">
-      <div className="mb-3 flex items-center gap-3 border-b border-bg-line pb-2">
-        <button className="font-mono text-xs text-signal">Signals</button>
-        <button className="font-mono text-xs text-ink-faint">Trades</button>
-        <button className="ml-auto text-ink-mute hover:text-ink"><span className="font-mono text-xs">⋮</span></button>
+    <button onClick={onToggle} className={`flex w-full items-center justify-between border ${c.border} ${c.bg} px-3 py-2.5 text-left transition hover:opacity-90`}>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-ink-mute">{name}</span>
+          <span className={`font-mono text-[9px] uppercase ${c.text}`}>{status === "v2" ? "V2" : status}</span>
+        </div>
+        <div className="mt-1 truncate font-mono text-xs text-ink">{summary}</div>
       </div>
-      <div className="space-y-3">
-        {signals.map((signal) => {
-          const colors = labelColor(signal.label);
-          return (
-            <button key={signal.kind} onClick={() => onSignalClick(signal)} className="group block w-full text-left transition hover:bg-bg-panel/50">
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">{signal.name}</span>
-                <span className={`font-mono text-[9px] uppercase ${colors.text}`}>{signal.label}</span>
-              </div>
-              <div className="mt-0.5 flex items-baseline gap-1.5">
-                <span className="font-mono text-sm">{signal.display}</span>
-                {signal.trend === "up" && <span className="text-signal text-[10px]">↑</span>}
-                {signal.trend === "down" && <span className="text-red-400 text-[10px]">↓</span>}
-              </div>
-              <div className="mt-1.5 relative h-1 rounded-full bg-bg-line">
-                <div className={`absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full ${colors.bar}`}
-                  style={{ left: `calc(${signal.intensity * 100}% - 5px)` }} />
-              </div>
-              <div className="mt-1 text-[10px] text-ink-faint">
-                {signal.context}
-                <span className="ml-2 opacity-0 group-hover:opacity-100 text-amber-300">+ trigger</span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-4 border-t border-bg-line pt-3 font-mono text-[10px] text-ink-faint">
-        Click any signal to add as trigger →
-      </div>
+      <span className="ml-2 text-ink-faint"><ChevronDown rotated={expanded} /></span>
+    </button>
+  );
+}
+
+function FundingCategory({ data, expandedCategories, onToggleCategory, onAddTrigger }: SignalsProps) {
+  const expanded = expandedCategories.has("funding");
+  const f = data.funding;
+  return (
+    <div>
+      <CategoryHeader kind="funding" name="Funding" summary={f.summary} status={f.status} expanded={expanded} onToggle={() => onToggleCategory("funding")} />
+      {expanded && (
+        <div className="mt-1.5 space-y-2 border border-bg-line bg-bg-panel/30 p-3">
+          <DetailRow label="Current rate (1h)" value={`${f.rate1h.toFixed(4)}%`} />
+          <DetailRow label="APR" value={`${f.apr.toFixed(2)}%`} valueColor={f.trend === "rising" ? "text-signal" : "text-ink"} suffix={f.trend === "rising" ? "↑" : f.trend === "falling" ? "↓" : ""} />
+          <DetailRow label="24h avg" value={`${f.avg24h.toFixed(1)}%`} />
+          <DetailRow label="24h peak" value={`${f.peak24h.toFixed(1)}%`} />
+          <DetailRow label="Direction" value={f.direction} />
+          <div className="border-t border-bg-line pt-2">
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">8h history</div>
+            <Sparkline data={f.sparkline} />
+          </div>
+          <button onClick={() => onAddTrigger("fundingAprAbove", Math.ceil(Math.abs(f.apr) * 1.3))}
+            className="mt-2 w-full border border-amber-500/40 bg-amber-500/10 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-amber-300 hover:bg-amber-500/20">
+            + Use as Trigger
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Order column — shared between desktop and mobile Trigger sub-tab
-// ─────────────────────────────────────────────────────────────────────────────
+function OrderFlowCategory({ data, expandedCategories, onToggleCategory, onAddTrigger }: SignalsProps) {
+  const expanded = expandedCategories.has("orderFlow");
+  const f = data.orderFlow;
+  return (
+    <div>
+      <CategoryHeader kind="orderFlow" name="Order Flow" summary={f.summary} status={f.status} expanded={expanded} onToggle={() => onToggleCategory("orderFlow")} />
+      {expanded && (
+        <div className="mt-1.5 space-y-2 border border-bg-line bg-bg-panel/30 p-3">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-signal">Buy {f.buyPct}%</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-red-400">{f.sellPct}% Sell</span>
+            </div>
+            <div className="flex h-1.5 overflow-hidden rounded-full bg-bg-line">
+              <div className="bg-signal" style={{ width: `${f.buyPct}%` }} />
+              <div className="bg-red-500" style={{ width: `${f.sellPct}%` }} />
+            </div>
+          </div>
+          <DetailRow label="Buy volume" value={formatBig(f.buyUsd)} />
+          <DetailRow label="Sell volume" value={formatBig(f.sellUsd)} />
+          <DetailRow label="Net flow 5min" value={`${f.netUsd > 0 ? "+" : ""}${formatBig(Math.abs(f.netUsd))}`} valueColor={f.netUsd > 0 ? "text-signal" : "text-red-400"} />
+          <DetailRow label="Avg trade size" value={formatBig(f.avgTradeUsd)} />
+          <div className="border-t border-bg-line pt-2">
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Recent large fills ($300k+)</div>
+            <div className="space-y-1 font-mono text-[10px]">
+              {f.largeFills.map((fill, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <span className={fill.side === "BUY" ? "text-signal" : "text-red-400"}>
+                    {fill.side === "BUY" ? "↑" : "↓"} {formatBig(fill.sizeUsd)}
+                  </span>
+                  <span className="text-ink-mute">@ {fill.price.toLocaleString()} · {fill.secondsAgo}s ago</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <button onClick={() => onAddTrigger("buyFlowAbove", Math.ceil(f.buyPct * 1.1))}
+            className="mt-2 w-full border border-amber-500/40 bg-amber-500/10 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-amber-300 hover:bg-amber-500/20">
+            + Use as Trigger
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrderBookCategory({ data, expandedCategories, onToggleCategory, onAddTrigger }: SignalsProps) {
+  const expanded = expandedCategories.has("orderBook");
+  const b = data.orderBook;
+  return (
+    <div>
+      <CategoryHeader kind="orderBook" name="Order Book" summary={b.summary} status={b.status} expanded={expanded} onToggle={() => onToggleCategory("orderBook")} />
+      {expanded && (
+        <div className="mt-1.5 space-y-2 border border-bg-line bg-bg-panel/30 p-3">
+          <DetailRow label="Spread" value={`${b.spreadAbs} (${b.spreadPct.toFixed(4)}%)`} />
+          <DetailRow label="Best bid" value={b.bestBid.toLocaleString()} valueColor="text-signal" />
+          <DetailRow label="Best ask" value={b.bestAsk.toLocaleString()} valueColor="text-red-400" />
+          <div className="border-t border-bg-line pt-2">
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Depth ±0.1%</div>
+            <DetailRow label="  Bids" value={formatBig(b.depth01.bids)} />
+            <DetailRow label="  Asks" value={formatBig(b.depth01.asks)} />
+          </div>
+          <div className="border-t border-bg-line pt-2">
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Depth ±0.5%</div>
+            <DetailRow label="  Bids" value={formatBig(b.depth05.bids)} />
+            <DetailRow label="  Asks" value={formatBig(b.depth05.asks)} />
+          </div>
+          <DetailRow label="Imbalance" value={`${b.imbalance > 0 ? "+" : ""}${b.imbalance}% ${b.imbalance > 0 ? "(bid-heavy)" : "(ask-heavy)"}`} valueColor={b.imbalance > 0 ? "text-signal" : "text-red-400"} />
+          <button onClick={() => onAddTrigger("imbalanceAbove", Math.ceil(Math.abs(b.imbalance) * 1.5))}
+            className="mt-2 w-full border border-amber-500/40 bg-amber-500/10 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-amber-300 hover:bg-amber-500/20">
+            + Use as Trigger
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OnChainCategory({ expandedCategories, onToggleCategory }: SignalsProps) {
+  const expanded = expandedCategories.has("onChain");
+  return (
+    <div>
+      <CategoryHeader kind="onChain" name="On-chain" summary="🔒 Coming in V2" status="v2" expanded={expanded} onToggle={() => onToggleCategory("onChain")} />
+      {expanded && (
+        <div className="mt-1.5 space-y-2 border border-bg-line bg-bg-panel/30 p-3">
+          <div className="text-center"><div className="text-3xl">🔒</div><div className="mt-2 font-mono text-xs text-ink-mute">Coming in V2</div></div>
+          <div className="border-t border-bg-line pt-2 font-mono text-[10px] text-ink-faint">
+            Will include:
+            <ul className="mt-1 ml-3 space-y-0.5 list-disc list-inside">
+              <li>Exchange inflow / outflow</li><li>Stablecoin minting</li><li>Large wallet movements</li>
+            </ul>
+          </div>
+          <p className="text-[10px] text-ink-faint">External data via Glassnode / Arkham planned post-PMF.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WalletFlowCategory({ expandedCategories, onToggleCategory }: SignalsProps) {
+  const expanded = expandedCategories.has("walletFlow");
+  return (
+    <div>
+      <CategoryHeader kind="walletFlow" name="Wallet Flow" summary="🔒 Coming in V2" status="v2" expanded={expanded} onToggle={() => onToggleCategory("walletFlow")} />
+      {expanded && (
+        <div className="mt-1.5 space-y-2 border border-bg-line bg-bg-panel/30 p-3">
+          <div className="text-center"><div className="text-3xl">🔒</div><div className="mt-2 font-mono text-xs text-ink-mute">Coming in V2</div></div>
+          <div className="border-t border-bg-line pt-2 font-mono text-[10px] text-ink-faint">
+            Will include:
+            <ul className="mt-1 ml-3 space-y-0.5 list-disc list-inside">
+              <li>Whale wallet activity</li><li>New vs returning traders</li><li>Our user position distribution</li>
+            </ul>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailRow({ label, value, valueColor, suffix }: { label: string; value: string; valueColor?: string; suffix?: string }) {
+  return (
+    <div className="flex items-baseline justify-between text-[11px]">
+      <span className="text-ink-mute">{label}</span>
+      <span className={`font-mono ${valueColor ?? "text-ink"}`}>{value}{suffix && <span className="ml-1">{suffix}</span>}</span>
+    </div>
+  );
+}
+
+function Sparkline({ data }: { data: number[] }) {
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  return (
+    <div className="flex h-10 items-end gap-0.5">
+      {data.map((v, i) => {
+        const h = ((v - min) / range) * 100;
+        return <div key={i} className="flex-1 bg-signal/50" style={{ height: `${Math.max(h, 5)}%` }} />;
+      })}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ORDER COLUMN (now with rule view mode + cancel)
+// ═════════════════════════════════════════════════════════════════════════════
 type OrderColumnProps = {
-  data: typeof SYMBOL_DATA[Symbol];
-  symbol: Symbol;
+  data: SymbolDetail; symbol: Symbol;
   side: Side; setSide: (s: Side) => void;
   sizePct: number; setSizePct: (n: number) => void;
   sizeRaw: string; setSizeRaw: (s: string) => void;
@@ -510,6 +791,11 @@ type OrderColumnProps = {
   reduceOnly: boolean; setReduceOnly: (b: boolean) => void;
   tpsl: boolean; setTpsl: (b: boolean) => void;
   onAction: () => void;
+  savedRules: SavedRule[];
+  viewingRuleId: string | null;
+  onCloseRuleView: () => void;
+  onCancelRule: (id: string) => void;
+  onAddPriceCondition: (kind: ConditionKind, threshold: number) => void;
 };
 
 function OrderColumn(props: OrderColumnProps) {
@@ -517,22 +803,73 @@ function OrderColumn(props: OrderColumnProps) {
     data, symbol, side, setSide, sizePct, setSizePct, sizeRaw, setSizeRaw,
     orderType, setOrderType, limitPrice, setLimitPrice, slippage, setSlippage,
     triggerConditions, combinator, setCombinator, triggerEvaluation,
-    onRemoveCondition, onUpdateThreshold, reduceOnly, setReduceOnly, tpsl, setTpsl, onAction
+    onRemoveCondition, onUpdateThreshold, reduceOnly, setReduceOnly, tpsl, setTpsl, onAction,
+    savedRules, viewingRuleId, onCloseRuleView, onCancelRule, onAddPriceCondition,
   } = props;
+
+  const viewedRule = savedRules.find(r => r.id === viewingRuleId) ?? null;
+
+  // If user clicked a chart line, show the rule details in this panel
+  if (viewedRule) {
+    return (
+      <div className="p-4">
+        <div className="mb-3 flex items-center justify-between border-b border-bg-line pb-2.5">
+          <span className="font-mono text-xs uppercase tracking-[0.1em] text-amber-300">Active Rule</span>
+          <button onClick={onCloseRuleView} className="font-mono text-[10px] uppercase text-ink-mute hover:text-ink">close ×</button>
+        </div>
+        <div className="space-y-3">
+          <div className="border border-amber-500/40 bg-amber-500/5 p-3">
+            <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.15em] text-amber-300">When triggered</div>
+            <div className="space-y-1.5">
+              {viewedRule.conditions.map((c, idx) => (
+                <div key={c.id}>
+                  {idx > 0 && <div className="my-1 font-mono text-[9px] uppercase tracking-[0.2em] text-ink-faint">{viewedRule.combinator}</div>}
+                  <div className="font-mono text-xs text-ink">
+                    {viewedRule.symbol} {CONDITION_LABELS[c.kind].label} {c.threshold}{CONDITION_LABELS[c.kind].unit === "%" ? "%" : CONDITION_LABELS[c.kind].unit === "USD" ? ` ${CONDITION_LABELS[c.kind].unit}` : ` ${CONDITION_LABELS[c.kind].unit}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border border-bg-line bg-bg-panel/30 p-3">
+            <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.15em] text-ink-faint">Then execute</div>
+            <DetailRow label="Direction" value={viewedRule.side === "long" ? "Buy / Long" : "Sell / Short"} valueColor={viewedRule.side === "long" ? "text-signal" : "text-red-400"} />
+            <DetailRow label="Size" value={`${viewedRule.sizePct}% portfolio`} />
+            <DetailRow label="Symbol" value={`${viewedRule.symbol}-USDC`} />
+          </div>
+
+          <div className="font-mono text-[10px] text-ink-faint">
+            Created {new Date(viewedRule.createdAt).toLocaleString()}
+          </div>
+
+          <button
+            onClick={() => { if (confirm("Cancel this rule? The trigger line will be removed and the rule will no longer fire.")) onCancelRule(viewedRule.id); }}
+            className="w-full border border-red-500/50 bg-red-500/10 py-2.5 font-mono text-xs uppercase tracking-[0.15em] text-red-400 hover:bg-red-500/20">
+            Cancel Rule
+          </button>
+
+          <p className="font-mono text-[10px] text-ink-faint">
+            Demo: in V1, our worker watches this rule 24/7 and sends Telegram + in-app alerts when it fires.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const actionLabel = () => {
     if (orderType === "market" || orderType === "limit") return "Connect";
     if (triggerConditions.length === 0) return "Add condition first";
-    if (triggerEvaluation.matches) return "Save as Rule  /  Execute";
+    if (triggerEvaluation.matches) return "Save Rule / Execute Now";
     return "Save as Rule";
   };
 
   return (
-    <div className="p-3">
+    <div className="p-4">
       <div className="mb-3 flex gap-px border-b border-bg-line">
         {(["market", "limit", "trigger"] as OrderType[]).map(t => (
           <button key={t} onClick={() => setOrderType(t)}
-            className={`px-3 py-2 font-mono text-xs uppercase tracking-[0.1em] ${
+            className={`px-3 py-2.5 font-mono text-xs uppercase tracking-[0.1em] ${
               orderType === t
                 ? t === "trigger" ? "border-b-2 border-amber-400 text-amber-300" : "border-b-2 border-signal text-signal"
                 : "text-ink-mute hover:text-ink"
@@ -543,8 +880,8 @@ function OrderColumn(props: OrderColumnProps) {
       </div>
 
       <div className="flex gap-px border border-bg-line">
-        <button onClick={() => setSide("long")} className={`flex-1 px-2 py-2 font-mono text-xs ${side === "long" ? "bg-signal/15 text-signal" : "text-ink-mute"}`}>Buy / Long</button>
-        <button onClick={() => setSide("short")} className={`flex-1 px-2 py-2 font-mono text-xs ${side === "short" ? "bg-red-500/15 text-red-400" : "text-ink-mute"}`}>Sell / Short</button>
+        <button onClick={() => setSide("long")} className={`flex-1 px-2 py-2.5 font-mono text-xs ${side === "long" ? "bg-signal/15 text-signal" : "text-ink-mute"}`}>Buy / Long</button>
+        <button onClick={() => setSide("short")} className={`flex-1 px-2 py-2.5 font-mono text-xs ${side === "short" ? "bg-red-500/15 text-red-400" : "text-ink-mute"}`}>Sell / Short</button>
       </div>
 
       <div className="mt-3 space-y-1 text-[11px]">
@@ -553,20 +890,20 @@ function OrderColumn(props: OrderColumnProps) {
       </div>
 
       {orderType === "limit" && (
-        <div className="mt-3">
+        <div className="mt-4">
           <label className="block text-[10px] uppercase tracking-[0.1em] text-ink-faint">Price (USDC)</label>
           <input type="text" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder={data.mark.toLocaleString()}
-            className="mt-1 w-full border border-bg-line bg-bg px-2 py-1.5 font-mono text-sm outline-none focus:border-signal" />
+            className="mt-1.5 w-full border border-bg-line bg-bg px-2.5 py-2 font-mono text-sm outline-none focus:border-signal" />
         </div>
       )}
 
-      <div className="mt-3">
+      <div className="mt-4">
         <div className="mb-1 flex items-center justify-between">
           <label className="text-[10px] uppercase tracking-[0.1em] text-ink-faint">Size</label>
           <span className="font-mono text-[10px] text-ink-faint">{symbol}</span>
         </div>
         <input type="text" value={sizeRaw} onChange={(e) => setSizeRaw(e.target.value)} placeholder="0.00"
-          className="w-full border border-bg-line bg-bg px-2 py-1.5 font-mono text-sm outline-none focus:border-signal" />
+          className="w-full border border-bg-line bg-bg px-2.5 py-2 font-mono text-sm outline-none focus:border-signal" />
         <div className="mt-2 flex items-center gap-2">
           <input type="range" min="0" max="100" value={sizePct} onChange={(e) => setSizePct(parseInt(e.target.value))} className="flex-1 accent-signal" />
           <div className="flex items-center border border-bg-line bg-bg">
@@ -578,18 +915,18 @@ function OrderColumn(props: OrderColumnProps) {
       </div>
 
       {orderType === "market" && (
-        <div className="mt-3">
+        <div className="mt-4">
           <label className="block text-[10px] uppercase tracking-[0.1em] text-ink-faint">Max slippage</label>
-          <div className="mt-1 flex items-center border border-bg-line bg-bg">
+          <div className="mt-1.5 flex items-center border border-bg-line bg-bg">
             <input type="number" step="0.1" value={slippage} onChange={(e) => setSlippage(parseFloat(e.target.value) || 0)}
-              className="flex-1 bg-transparent px-2 py-1.5 font-mono text-sm outline-none" />
+              className="flex-1 bg-transparent px-2.5 py-2 font-mono text-sm outline-none" />
             <span className="pr-2 font-mono text-xs text-ink-faint">%</span>
           </div>
         </div>
       )}
 
       {orderType === "trigger" && (
-        <div className="mt-3 space-y-2 border-l-2 border-amber-500/40 pl-3">
+        <div className="mt-4 space-y-2 border-l-2 border-amber-500/40 pl-3">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">When ({triggerConditions.length}/3)</span>
             {triggerConditions.length > 1 && (
@@ -601,16 +938,35 @@ function OrderColumn(props: OrderColumnProps) {
             )}
           </div>
           {triggerConditions.length === 0 ? (
-            <p className="text-[10px] text-ink-faint">Go to Signals tab and click a signal to add a condition →</p>
+            <div>
+              <p className="text-[10px] text-ink-faint">Add a condition by:</p>
+              <ul className="mt-1 ml-2 list-disc list-inside text-[10px] text-ink-faint">
+                <li>Expanding a Signal category</li>
+                <li>Clicking "+ Use as Trigger"</li>
+              </ul>
+              <div className="mt-2 border-t border-bg-line pt-2">
+                <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Or set a price trigger:</p>
+                <div className="flex gap-1">
+                  <button onClick={() => onAddPriceCondition("priceAbove", Math.ceil(data.mark * 1.02))}
+                    className="flex-1 border border-bg-line bg-bg px-2 py-1.5 font-mono text-[10px] text-ink-mute hover:border-signal hover:text-signal">
+                    Price &gt; ${Math.ceil(data.mark * 1.02).toLocaleString()}
+                  </button>
+                  <button onClick={() => onAddPriceCondition("priceBelow", Math.floor(data.mark * 0.98))}
+                    className="flex-1 border border-bg-line bg-bg px-2 py-1.5 font-mono text-[10px] text-ink-mute hover:border-signal hover:text-signal">
+                    Price &lt; ${Math.floor(data.mark * 0.98).toLocaleString()}
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="space-y-1.5">
               {triggerConditions.map((c, idx) => (
                 <div key={c.id}>
                   {idx > 0 && <div className="my-1 font-mono text-[9px] uppercase tracking-[0.2em] text-ink-faint">{combinator}</div>}
-                  <div className="flex items-center gap-1.5 border border-bg-line bg-bg px-1.5 py-1.5">
-                    <span className="flex-1 truncate font-mono text-[10px] text-ink-mute">{symbol} {CONDITION_LABELS[c.kind].label}</span>
+                  <div className="flex items-center gap-1.5 border border-bg-line bg-bg px-2 py-2">
+                    <span className="flex-1 truncate font-mono text-[10px] text-ink-mute">{c.symbol} {CONDITION_LABELS[c.kind].label}</span>
                     <input type="number" step="0.5" value={c.threshold} onChange={(e) => onUpdateThreshold(c.id, parseFloat(e.target.value) || 0)}
-                      className="w-14 border border-bg-line bg-bg px-1 py-0.5 text-right font-mono text-[10px] outline-none focus:border-signal" />
+                      className="w-16 border border-bg-line bg-bg px-1 py-0.5 text-right font-mono text-[10px] outline-none focus:border-signal" />
                     <button onClick={() => onRemoveCondition(c.id)} className="text-ink-faint hover:text-red-400">×</button>
                   </div>
                 </div>
@@ -618,14 +974,14 @@ function OrderColumn(props: OrderColumnProps) {
             </div>
           )}
           {triggerConditions.length > 0 && (
-            <div className={`border px-2 py-1 font-mono text-[10px] ${triggerEvaluation.matches ? "border-signal/40 bg-signal/5 text-signal" : "border-bg-line text-ink-mute"}`}>
+            <div className={`border px-2 py-1.5 font-mono text-[10px] ${triggerEvaluation.matches ? "border-signal/40 bg-signal/5 text-signal" : "border-bg-line text-ink-mute"}`}>
               {triggerEvaluation.matches ? "● WOULD FIRE NOW" : "○ waiting…"}
             </div>
           )}
         </div>
       )}
 
-      <div className="mt-3 space-y-1.5">
+      <div className="mt-4 space-y-1.5">
         <label className="flex items-center gap-2 text-[11px]">
           <input type="checkbox" checked={reduceOnly} onChange={(e) => setReduceOnly(e.target.checked)} className="accent-signal" />
           <span className="text-ink-mute">Reduce Only</span>
@@ -636,7 +992,7 @@ function OrderColumn(props: OrderColumnProps) {
         </label>
       </div>
 
-      <div className="mt-3 space-y-0.5 text-[10px]">
+      <div className="mt-4 space-y-1 text-[10px]">
         <div className="flex justify-between"><span className="text-ink-faint">Liquidation Price</span><span className="font-mono text-ink-mute">N/A</span></div>
         <div className="flex justify-between"><span className="text-ink-faint">Order Value</span><span className="font-mono text-ink-mute">N/A</span></div>
         <div className="flex justify-between"><span className="text-ink-faint">Slippage</span><span className="font-mono text-ink-mute">Est: 0% / Max: 8%</span></div>
@@ -644,7 +1000,7 @@ function OrderColumn(props: OrderColumnProps) {
       </div>
 
       <button onClick={onAction}
-        className={`mt-3 w-full px-4 py-2.5 font-mono text-xs uppercase tracking-[0.1em] ${
+        className={`mt-4 w-full px-4 py-3 font-mono text-xs uppercase tracking-[0.1em] ${
           orderType === "trigger" && triggerEvaluation.matches
             ? "border border-signal bg-signal/15 text-signal hover:bg-signal/25"
             : orderType === "trigger"
@@ -655,41 +1011,40 @@ function OrderColumn(props: OrderColumnProps) {
         }`}>
         {actionLabel()}
       </button>
+
+      {savedRules.length > 0 && (
+        <div className="mt-4 border-t border-bg-line pt-3">
+          <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">{savedRules.length} saved rule{savedRules.length > 1 ? "s" : ""}</div>
+          <p className="mt-1 text-[10px] text-ink-faint">Click trigger lines on the chart to view or cancel.</p>
+        </div>
+      )}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Bottom Tabs (Desktop)
-// ─────────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// BOTTOM TABS (Desktop)
+// ═════════════════════════════════════════════════════════════════════════════
 function BottomTabsArea({ activeTab, onTabChange }: { activeTab: BottomTab; onTabChange: (t: BottomTab) => void }) {
   const tabs: { id: BottomTab; label: string }[] = [
-    { id: "balances", label: "Balances" },
-    { id: "positions", label: "Positions" },
-    { id: "outcomes", label: "Outcomes" },
-    { id: "openOrders", label: "Open Orders" },
-    { id: "twap", label: "TWAP" },
-    { id: "tradeHistory", label: "Trade History" },
-    { id: "fundingHistory", label: "Funding History" },
-    { id: "orderHistory", label: "Order History" },
-    { id: "triggerHistory", label: "Trigger History" },
+    { id: "balances", label: "Balances" }, { id: "positions", label: "Positions" }, { id: "outcomes", label: "Outcomes" },
+    { id: "openOrders", label: "Open Orders" }, { id: "twap", label: "TWAP" }, { id: "tradeHistory", label: "Trade History" },
+    { id: "fundingHistory", label: "Funding History" }, { id: "orderHistory", label: "Order History" }, { id: "triggerHistory", label: "Trigger History" },
   ];
   return (
     <div className="border-t border-bg-line">
       <div className="flex items-center gap-1 overflow-x-auto border-b border-bg-line px-3">
         {tabs.map(t => (
           <button key={t.id} onClick={() => onTabChange(t.id)}
-            className={`shrink-0 px-3 py-2.5 font-mono text-xs ${activeTab === t.id ? "text-signal border-b-2 border-signal" : "text-ink-mute hover:text-ink"}`}>
+            className={`shrink-0 px-3 py-3 font-mono text-xs ${activeTab === t.id ? "text-signal border-b-2 border-signal" : "text-ink-mute hover:text-ink"}`}>
             {t.label}
             {t.id === "triggerHistory" && <span className="ml-1.5 inline-block rounded-sm bg-amber-500/20 px-1 py-px text-[9px] text-amber-300">Project.Q</span>}
           </button>
         ))}
       </div>
-      <div className="min-h-[160px] p-4 text-sm">
+      <div className="min-h-[200px] p-4 text-sm">
         {activeTab === "triggerHistory" ? <TriggerHistoryTable /> : (
-          <p className="text-ink-faint">
-            {activeTab === "positions" ? "No open positions yet" : `No data yet — connect wallet to see your ${tabs.find(t => t.id === activeTab)?.label.toLowerCase()}`}
-          </p>
+          <p className="text-ink-faint">{activeTab === "positions" ? "No open positions yet" : `No data yet — connect wallet to see your ${tabs.find(t => t.id === activeTab)?.label.toLowerCase()}`}</p>
         )}
       </div>
     </div>
@@ -727,29 +1082,53 @@ function TriggerHistoryTable() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// MOBILE COMPONENTS
+// MOBILE HEADER
 // ═════════════════════════════════════════════════════════════════════════════
-type MobileMarketsProps = OrderColumnProps & {
+function MobileHeader({ showConnect, onConnectClick }: { showConnect: boolean; onConnectClick: () => void }) {
+  return (
+    <header className="border-b border-bg-line">
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-3">
+          <button className="text-ink-mute"><HamburgerIcon /></button>
+          <Link href="/" className="flex items-center gap-1.5 font-mono text-sm">
+            <span className="text-signal">●</span><span className="font-medium">PROJECT.Q</span>
+          </Link>
+        </div>
+        <div className="flex items-center gap-2">
+          {showConnect && (
+            <button onClick={onConnectClick} className="border border-signal/60 bg-signal/10 px-3 py-1.5 font-mono text-xs uppercase text-signal">Connect</button>
+          )}
+          <IconButton title="Language"><GlobeIcon /></IconButton>
+          <IconButton title="Settings"><GearIcon /></IconButton>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MOBILE MARKETS
+// ═════════════════════════════════════════════════════════════════════════════
+type MobileMarketsProps = SignalsProps & OrderColumnProps & {
   setSymbol: (s: Symbol) => void;
   candles: CandleData[];
-  subTab: MarketsSubTab; setSubTab: (t: MarketsSubTab) => void;
-  onSignalClick: (s: Signal) => void;
+  priceLines: PriceLine[];
+  onPriceLineClick: (id: string) => void;
+  nonPriceRules: SavedRule[];
+  subTab: MarketsSubTab;
+  setSubTab: (t: MarketsSubTab) => void;
 };
 
 function MobileMarkets(props: MobileMarketsProps) {
-  const { symbol, setSymbol, data, candles, subTab, setSubTab, onSignalClick } = props;
-
+  const { symbol, setSymbol, data, candles, subTab, setSubTab, priceLines, onPriceLineClick, nonPriceRules } = props;
   return (
     <div>
-      {/* Pair header — compact */}
       <div className="border-b border-bg-line px-3 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <select value={symbol} onChange={(e) => setSymbol(e.target.value as Symbol)}
               className="border-0 bg-transparent pr-6 font-medium text-lg outline-none">
-              {(["BTC", "ETH", "SOL", "HYPE", "DOGE"] as Symbol[]).map(s => (
-                <option key={s} value={s}>{s}-USDC</option>
-              ))}
+              {(["BTC", "ETH", "SOL", "HYPE", "DOGE"] as Symbol[]).map(s => <option key={s} value={s}>{s}-USDC</option>)}
             </select>
             <span className="text-[10px] text-signal">10x</span>
           </div>
@@ -761,202 +1140,129 @@ function MobileMarkets(props: MobileMarketsProps) {
           </div>
         </div>
       </div>
-
-      {/* Sub-tabs: Chart / Signal / Trigger */}
       <div className="border-b border-bg-line">
         <div className="flex">
           {(["chart", "signal", "trigger"] as MarketsSubTab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setSubTab(t)}
+            <button key={t} onClick={() => setSubTab(t)}
               className={`flex-1 py-3 text-center font-medium ${
                 subTab === t
-                  ? t === "trigger"
-                    ? "border-b-2 border-amber-400 text-amber-300"
-                    : "border-b-2 border-signal text-signal"
+                  ? t === "trigger" ? "border-b-2 border-amber-400 text-amber-300" : "border-b-2 border-signal text-signal"
                   : "text-ink-mute"
-              }`}
-            >
-              {t === "chart" && "Chart"}
-              {t === "signal" && "Signal"}
-              {t === "trigger" && "Trigger"}
+              }`}>
+              {t === "chart" && "Chart"}{t === "signal" && "Signal"}{t === "trigger" && "Trigger"}
             </button>
           ))}
         </div>
       </div>
-
-      {/* Sub-tab content */}
       <div>
-        {subTab === "chart" && <MobileChartTab candles={candles} symbol={symbol} />}
-        {subTab === "signal" && <MobileSignalTab signals={data.signals} onSignalClick={onSignalClick} />}
-        {subTab === "trigger" && <MobileTriggerTab {...props} />}
+        {subTab === "chart" && (
+          <MobileChartTab candles={candles} symbol={symbol} priceLines={priceLines} onPriceLineClick={(id) => { onPriceLineClick(id); setSubTab("trigger"); }} nonPriceRules={nonPriceRules} onShowRule={(id) => { onPriceLineClick(id); setSubTab("trigger"); }} />
+        )}
+        {subTab === "signal" && <SignalsColumn {...props} />}
+        {subTab === "trigger" && <OrderColumn {...props} />}
       </div>
     </div>
   );
 }
 
-function MobileChartTab({ candles, symbol }: { candles: CandleData[]; symbol: Symbol }) {
+function MobileChartTab({
+  candles, symbol, priceLines, onPriceLineClick, nonPriceRules, onShowRule,
+}: {
+  candles: CandleData[]; symbol: Symbol;
+  priceLines: PriceLine[]; onPriceLineClick: (id: string) => void;
+  nonPriceRules: SavedRule[]; onShowRule: (id: string) => void;
+}) {
   const [tf, setTf] = useState("1h");
   return (
     <div className="p-3">
-      <div className="mb-2 flex items-center gap-3 text-xs">
+      <div className="mb-3 flex items-center gap-3 text-xs">
         {["5m", "1h", "D"].map(t => (
           <button key={t} onClick={() => setTf(t)} className={`font-mono ${tf === t ? "text-ink" : "text-ink-mute"}`}>{t}</button>
         ))}
         <span className="text-ink-faint">|</span>
         <button className="font-mono text-ink-mute">ƒ Indicators</button>
       </div>
-      <CandleChart candles={candles} height={360} />
-      <div className="mt-2 flex justify-between text-[11px]">
+      {nonPriceRules.length > 0 && (
+        <div className="mb-3 flex items-center gap-1.5 overflow-x-auto">
+          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Active:</span>
+          {nonPriceRules.map((rule) => (
+            <button key={rule.id} onClick={() => onShowRule(rule.id)}
+              className="shrink-0 border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] text-amber-300">
+              ⚡ {rule.conditions.length}-cond
+            </button>
+          ))}
+        </div>
+      )}
+      <CandleChart candles={candles} height={420} priceLines={priceLines} onPriceLineClick={onPriceLineClick} hideHeader />
+      <div className="mt-3 flex justify-between text-[11px]">
         <div className="flex gap-2 font-mono text-ink-mute">
           {["5y", "1y", "6m", "3m", "1m", "5d", "1d"].map(r => <button key={r}>{r}</button>)}
         </div>
         <span className="font-mono text-ink-faint">{symbol}-USD</span>
       </div>
+      {priceLines.length > 0 && (
+        <p className="mt-2 text-center font-mono text-[10px] text-amber-300">Tap a trigger line to view / cancel rule →</p>
+      )}
     </div>
   );
 }
 
-function MobileSignalTab({ signals, onSignalClick }: { signals: Signal[]; onSignalClick: (s: Signal) => void }) {
-  return (
-    <div className="p-3">
-      <p className="mb-3 font-mono text-[10px] text-ink-faint">
-        Tap any signal to add as a trigger condition →
-      </p>
-      <div className="space-y-3">
-        {signals.map((signal) => {
-          const colors = labelColor(signal.label);
-          return (
-            <button key={signal.kind} onClick={() => onSignalClick(signal)}
-              className="block w-full border border-bg-line bg-bg-panel/40 p-3 text-left transition active:bg-bg-panel/80">
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-faint">{signal.name}</span>
-                <span className={`font-mono text-[10px] uppercase ${colors.text}`}>{signal.label}</span>
-              </div>
-              <div className="mt-1 flex items-baseline gap-2">
-                <span className="font-mono text-lg">{signal.display}</span>
-                {signal.trend === "up" && <span className="text-signal text-xs">↑</span>}
-                {signal.trend === "down" && <span className="text-red-400 text-xs">↓</span>}
-              </div>
-              <div className="mt-2 relative h-1.5 rounded-full bg-bg-line">
-                <div className={`absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full ${colors.bar}`}
-                  style={{ left: `calc(${signal.intensity * 100}% - 6px)` }} />
-              </div>
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-[11px] text-ink-faint">{signal.context}</span>
-                <span className="font-mono text-[10px] text-amber-300">+ trigger →</span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function MobileTriggerTab(props: MobileMarketsProps) {
-  // Reuse OrderColumn directly — it has the same shape as desktop
-  return <OrderColumn {...props} />;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Mobile Trade tab (Connect sheet)
-// ─────────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// MOBILE TRADE / ACCOUNT
+// ═════════════════════════════════════════════════════════════════════════════
 function MobileTradeConnect() {
-  const handleConnect = (method: string) => {
-    alert(`Demo: ${method}\n\nIn V1, this initiates a real wallet connection via Wagmi/ConnectKit.`);
-  };
-
+  const handleConnect = (method: string) => alert(`Demo: ${method}\n\nIn V1, this triggers real wallet connection.`);
   return (
     <div className="p-5">
       <h2 className="mb-4 text-xl">Connect</h2>
-
       <div className="space-y-3">
         <button onClick={() => handleConnect("Link Desktop Wallet")}
           className="flex w-full items-center gap-3 border border-bg-line bg-bg-panel/60 p-4 text-left transition active:bg-bg-panel">
-          <svg className="h-5 w-5 text-ink-mute" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="3" y="5" width="18" height="12" rx="1" strokeWidth="1.5"/>
-            <path d="M2 19h20" strokeWidth="1.5"/>
-          </svg>
+          <svg className="h-5 w-5 text-ink-mute" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="1" strokeWidth="1.5"/><path d="M2 19h20" strokeWidth="1.5"/></svg>
           <span>Link Desktop Wallet</span>
         </button>
-
         <button onClick={() => handleConnect("Log in with Email")}
           className="flex w-full items-center gap-3 border border-bg-line bg-bg-panel/60 p-4 text-left transition active:bg-bg-panel">
-          <svg className="h-5 w-5 text-ink-mute" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="3" y="5" width="18" height="14" rx="1" strokeWidth="1.5"/>
-            <path d="M3 7l9 7 9-7" strokeWidth="1.5"/>
-          </svg>
+          <svg className="h-5 w-5 text-ink-mute" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1" strokeWidth="1.5"/><path d="M3 7l9 7 9-7" strokeWidth="1.5"/></svg>
           <span>Log in with Email</span>
         </button>
-
         <div className="flex items-center gap-2 py-2">
-          <div className="h-px flex-1 bg-bg-line"/>
-          <span className="font-mono text-[10px] text-ink-faint">OR</span>
-          <div className="h-px flex-1 bg-bg-line"/>
+          <div className="h-px flex-1 bg-bg-line"/><span className="font-mono text-[10px] text-ink-faint">OR</span><div className="h-px flex-1 bg-bg-line"/>
         </div>
-
         <button onClick={() => handleConnect("WalletConnect")}
           className="flex w-full items-center gap-3 border border-bg-line bg-bg-panel/60 p-4 text-left transition active:bg-bg-panel">
-          <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M6.5 9.5c3-3 7-3 10 0l.4.4c.2.2.2.4 0 .6l-1.3 1.3c-.1.1-.2.1-.3 0l-.5-.5c-2.1-2-5.4-2-7.5 0l-.6.6c-.1.1-.2.1-.3 0L5.1 10.6c-.2-.2-.2-.4 0-.6l1.4-.5zM19.6 13l1.2 1.2c.2.2.2.4 0 .6l-5.4 5.3c-.2.2-.4.2-.6 0L11 16.5c-.1 0-.1 0-.2 0l-3.8 3.7c-.2.2-.4.2-.6 0L1 14.8c-.2-.2-.2-.4 0-.6L2.2 13c.2-.2.4-.2.6 0l3.8 3.7c.1.1.2.1.3 0l3.8-3.7c.2-.2.4-.2.6 0l3.8 3.7c.1.1.2.1.3 0l3.8-3.7c.2-.2.4-.2.5 0z"/>
-          </svg>
+          <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24"><path d="M6.5 9.5c3-3 7-3 10 0l.4.4c.2.2.2.4 0 .6l-1.3 1.3c-.1.1-.2.1-.3 0l-.5-.5c-2.1-2-5.4-2-7.5 0l-.6.6c-.1.1-.2.1-.3 0L5.1 10.6c-.2-.2-.2-.4 0-.6l1.4-.5zM19.6 13l1.2 1.2c.2.2.2.4 0 .6l-5.4 5.3c-.2.2-.4.2-.6 0L11 16.5c-.1 0-.1 0-.2 0l-3.8 3.7c-.2.2-.4.2-.6 0L1 14.8c-.2-.2-.2-.4 0-.6L2.2 13c.2-.2.4-.2.6 0l3.8 3.7c.1.1.2.1.3 0l3.8-3.7c.2-.2.4-.2.6 0l3.8 3.7c.1.1.2.1.3 0l3.8-3.7c.2-.2.4-.2.5 0z"/></svg>
           <span>WalletConnect</span>
         </button>
       </div>
-
       <div className="mt-5 rounded border border-signal/30 bg-signal/5 p-3">
-        <p className="text-sm">
-          <span className="text-ink-mute">Prefer an app-like experience? </span>
-          <button className="text-signal underline">Try the PWA.</button>
-        </p>
+        <p className="text-sm"><span className="text-ink-mute">Prefer an app-like experience? </span><button className="text-signal underline">Try the PWA.</button></p>
       </div>
-
-      <p className="mt-6 text-center font-mono text-[10px] text-ink-faint">
-        Demo mode — no real wallet connection in this mockup
-      </p>
+      <p className="mt-6 text-center font-mono text-[10px] text-ink-faint">Demo mode</p>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Mobile Account tab
-// ─────────────────────────────────────────────────────────────────────────────
 function MobileAccount() {
   return (
     <div>
       <div className="bg-signal/10 px-4 py-3 text-sm">
-        <span className="text-ink-mute">Welcome to Project Q! Get started </span>
-        <button className="text-signal underline">here</button>.
+        <span className="text-ink-mute">Welcome to Project Q! Get started </span><button className="text-signal underline">here</button>.
       </div>
-
       <div className="p-4">
         <h3 className="mb-3 text-base">Account Equity</h3>
         <div className="space-y-2 border-b border-bg-line pb-4">
-          <div className="flex justify-between">
-            <span className="text-ink-mute underline decoration-dotted">Spot</span>
-            <span className="font-mono">$0.00</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-ink-mute underline decoration-dotted">Perps</span>
-            <span className="font-mono">$0.00</span>
-          </div>
+          <MobileRow label="Spot" value="$0.00" /><MobileRow label="Perps" value="$0.00" />
         </div>
-
         <h3 className="mb-3 mt-5 text-base">Perps Overview</h3>
         <div className="space-y-2">
-          <Row label="Balance" value="$0.00" />
-          <Row label="Unrealized PNL" value="$0.00" />
-          <Row label="Cross Margin Ratio" value="0.00%" valueColor="text-signal" />
-          <Row label="Maintenance Margin" value="$0.00" />
-          <Row label="Cross Account Leverage" value="0.00x" />
+          <MobileRow label="Balance" value="$0.00" /><MobileRow label="Unrealized PNL" value="$0.00" />
+          <MobileRow label="Cross Margin Ratio" value="0.00%" valueColor="text-signal" />
+          <MobileRow label="Maintenance Margin" value="$0.00" /><MobileRow label="Cross Account Leverage" value="0.00x" />
         </div>
       </div>
-
       <div className="fixed inset-x-0 bottom-[68px] space-y-2 border-t border-bg-line bg-bg p-3">
-        <button className="w-full border border-signal bg-signal/15 py-3 font-medium text-signal">
-          Deposit
-        </button>
+        <button className="w-full border border-signal bg-signal/15 py-3 font-medium text-signal">Deposit</button>
         <div className="grid grid-cols-2 gap-2">
           <button className="border border-bg-line py-2.5 text-sm text-signal">Perps ⇄ Spot</button>
           <button className="border border-bg-line py-2.5 text-sm text-signal">Withdraw</button>
@@ -966,7 +1272,7 @@ function MobileAccount() {
   );
 }
 
-function Row({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+function MobileRow({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <div className="flex justify-between">
       <span className="text-ink-mute underline decoration-dotted">{label}</span>
@@ -975,55 +1281,22 @@ function Row({ label, value, valueColor }: { label: string; value: string; value
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Bottom Tab Bar (mobile only)
-// ─────────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// BOTTOM TAB BAR
+// ═════════════════════════════════════════════════════════════════════════════
 function BottomTabBar({ activeTab, onTabChange }: { activeTab: MobileTab; onTabChange: (t: MobileTab) => void }) {
   const tabs: { id: MobileTab; label: string; icon: React.ReactNode }[] = [
-    {
-      id: "markets",
-      label: "Markets",
-      icon: (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path d="M4 20V10M12 20V4M20 20V14" strokeWidth="2" strokeLinecap="round"/>
-        </svg>
-      ),
-    },
-    {
-      id: "trade",
-      label: "Trade",
-      icon: (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="3" strokeWidth="2"/>
-          <circle cx="12" cy="12" r="9" strokeWidth="2"/>
-        </svg>
-      ),
-    },
-    {
-      id: "account",
-      label: "Account",
-      icon: (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <circle cx="12" cy="8" r="4" strokeWidth="2"/>
-          <path d="M4 21v-2a4 4 0 014-4h8a4 4 0 014 4v2" strokeWidth="2"/>
-        </svg>
-      ),
-    },
+    { id: "markets", label: "Markets", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 20V10M12 20V4M20 20V14" strokeWidth="2" strokeLinecap="round"/></svg> },
+    { id: "trade", label: "Trade", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" strokeWidth="2"/><circle cx="12" cy="12" r="9" strokeWidth="2"/></svg> },
+    { id: "account", label: "Account", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" strokeWidth="2"/><path d="M4 21v-2a4 4 0 014-4h8a4 4 0 014 4v2" strokeWidth="2"/></svg> },
   ];
-
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-bg-line bg-bg">
       <div className="flex">
         {tabs.map(t => (
-          <button
-            key={t.id}
-            onClick={() => onTabChange(t.id)}
-            className={`flex flex-1 flex-col items-center gap-1 py-3 transition ${
-              activeTab === t.id ? "text-signal" : "text-ink-mute"
-            }`}
-          >
-            {t.icon}
-            <span className="text-[11px]">{t.label}</span>
+          <button key={t.id} onClick={() => onTabChange(t.id)}
+            className={`flex flex-1 flex-col items-center gap-1 py-3 transition ${activeTab === t.id ? "text-signal" : "text-ink-mute"}`}>
+            {t.icon}<span className="text-[11px]">{t.label}</span>
           </button>
         ))}
       </div>
