@@ -8,12 +8,13 @@ import { CandleChart, generateSyntheticCandles, type CandleData, type PriceLine 
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 type Symbol = "BTC" | "ETH" | "SOL" | "HYPE" | "DOGE";
-type CategoryKind = "funding" | "oi" | "orderFlow" | "liquidations" | "orderBook" | "onChain" | "hlActivity";
+type CategoryKind = "funding" | "oi" | "orderFlow" | "lsRatio" | "liquidations" | "orderBook" | "onChain" | "hlActivity";
 type ConditionKind =
   | "priceAbove" | "priceBelow"
   | "fundingAprAbove" | "fundingAprBelow" | "fundingFlip"
   | "oiChange24hAbove" | "oiChange1hAbove"
   | "buyFlowAbove" | "largeFillDetected" | "netFlow5minAbove"
+  | "lsRatioAbove" | "lsRatioBelow" | "lsRatioFlipBullish" | "lsRatioFlipBearish"
   | "liquidations1hAbove" | "longLiquidationsAbove" | "shortLiquidationsAbove"
   | "spreadAbove" | "imbalanceAbove"
   | "fundingGapAbove" | "allExchangesCrowded";
@@ -87,6 +88,28 @@ const POPULAR_COMBOS: PopularCombo[] = [
     side: "short",
     category: "Arbitrage",
   },
+  {
+    id: "combo-4",
+    name: "Crowded long + funding extreme",
+    description: "Long-heavy positioning + extreme funding = classic fade setup.",
+    conditionTemplates: [
+      { kind: "lsRatioAbove", thresholdMultiplier: 1.15 },
+      { kind: "fundingAprAbove", thresholdMultiplier: 1.3 },
+    ],
+    side: "short",
+    category: "Mean Reversion",
+  },
+  {
+    id: "combo-5",
+    name: "L/S flip + OI rising",
+    description: "Sentiment shift confirmed by capital flowing in = trend confirmation.",
+    conditionTemplates: [
+      { kind: "lsRatioFlipBullish", thresholdMultiplier: 1.0 },
+      { kind: "oiChange1hAbove", thresholdMultiplier: 1.5 },
+    ],
+    side: "long",
+    category: "Trend Confirmation",
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,6 +140,15 @@ type SymbolDetail = {
     netUsd: number; avgTradeUsd: number;
     largeFills: { price: number; sizeUsd: number; side: "BUY" | "SELL"; secondsAgo: number }[];
     status: CategoryStatus; summary: string;
+  };
+  lsRatio: {
+    ratio: number; // longAccountPct / shortAccountPct
+    longAccountPct: number; // 0-100
+    shortAccountPct: number; // 0-100
+    trend24h: "rising" | "falling" | "stable";
+    sparkline: number[]; // 7-12 historical values
+    status: CategoryStatus; summary: string;
+    crossExchange: { hl: number; binance: number; bybit: number }; // V2 expansion preview
   };
   liquidations: {
     total1hUsd: number; longUsd: number; shortUsd: number;
@@ -188,6 +220,12 @@ const SYMBOL_DATA: Record<Symbol, SymbolDetail> = {
       ],
       status: "normal", summary: "Buy 56% · neutral",
     },
+    lsRatio: {
+      ratio: 1.45, longAccountPct: 59.2, shortAccountPct: 40.8,
+      trend24h: "stable", sparkline: [1.42, 1.40, 1.38, 1.41, 1.43, 1.45, 1.45],
+      status: "normal", summary: "1.45 · slight long bias",
+      crossExchange: { hl: 1.45, binance: 1.32, bybit: 1.38 },
+    },
     liquidations: { total1hUsd: 45e6, longUsd: 28e6, shortUsd: 17e6,
       largestUsd: 4.2e6, largestSide: "long",
       pattern24h: [1, 1, 2, 3, 1, 1, 1, 2, 5, 6, 7, 5, 3, 2, 1, 1],
@@ -215,6 +253,12 @@ const SYMBOL_DATA: Record<Symbol, SymbolDetail> = {
         { price: 2335, sizeUsd: 180000, side: "SELL", secondsAgo: 2.1 },
       ],
       status: "normal", summary: "Buy 52% · neutral" },
+    lsRatio: {
+      ratio: 0.78, longAccountPct: 43.8, shortAccountPct: 56.2,
+      trend24h: "falling", sparkline: [0.95, 0.92, 0.88, 0.85, 0.82, 0.80, 0.78],
+      status: "high", summary: "0.78 · short-heavy (contrarian)",
+      crossExchange: { hl: 0.78, binance: 0.91, bybit: 0.85 },
+    },
     liquidations: { total1hUsd: 12e6, longUsd: 5e6, shortUsd: 7e6,
       largestUsd: 1.1e6, largestSide: "short",
       pattern24h: [1, 1, 1, 1, 2, 2, 1, 1, 1, 1, 2, 3, 2, 1, 1, 1],
@@ -242,6 +286,12 @@ const SYMBOL_DATA: Record<Symbol, SymbolDetail> = {
         { price: 95.15, sizeUsd: 290000, side: "BUY", secondsAgo: 1.5 },
       ],
       status: "high", summary: "Buy 64% · buy pressure" },
+    lsRatio: {
+      ratio: 1.92, longAccountPct: 65.7, shortAccountPct: 34.3,
+      trend24h: "rising", sparkline: [1.45, 1.55, 1.65, 1.75, 1.82, 1.88, 1.92],
+      status: "high", summary: "1.92 · long-heavy",
+      crossExchange: { hl: 1.92, binance: 1.65, bybit: 1.72 },
+    },
     liquidations: { total1hUsd: 18e6, longUsd: 6e6, shortUsd: 12e6,
       largestUsd: 2.1e6, largestSide: "short",
       pattern24h: [1, 1, 1, 2, 2, 1, 1, 2, 3, 4, 5, 4, 3, 2, 1, 1],
@@ -266,6 +316,12 @@ const SYMBOL_DATA: Record<Symbol, SymbolDetail> = {
     orderFlow: { buyPct: 58, sellPct: 42, buyUsd: 8.1e6, sellUsd: 5.9e6, netUsd: 2.2e6, avgTradeUsd: 3500,
       largeFills: [{ price: 41.483, sizeUsd: 420000, side: "BUY", secondsAgo: 0.4 }],
       status: "normal", summary: "Buy 58% · slight buy" },
+    lsRatio: {
+      ratio: 2.34, longAccountPct: 70.1, shortAccountPct: 29.9,
+      trend24h: "rising", sparkline: [1.85, 1.95, 2.05, 2.15, 2.22, 2.28, 2.34],
+      status: "extreme", summary: "2.34 · very long-heavy",
+      crossExchange: { hl: 2.34, binance: 0, bybit: 0 }, // HYPE only on HL
+    },
     liquidations: { total1hUsd: 24e6, longUsd: 18e6, shortUsd: 6e6,
       largestUsd: 3.2e6, largestSide: "long",
       pattern24h: [2, 2, 3, 3, 2, 2, 3, 4, 5, 6, 7, 6, 4, 3, 2, 2],
@@ -290,6 +346,12 @@ const SYMBOL_DATA: Record<Symbol, SymbolDetail> = {
     orderFlow: { buyPct: 61, sellPct: 39, buyUsd: 3.2e6, sellUsd: 2.0e6, netUsd: 1.2e6, avgTradeUsd: 1800,
       largeFills: [{ price: 0.1098, sizeUsd: 180000, side: "BUY", secondsAgo: 0.8 }],
       status: "high", summary: "Buy 61% · crowded long" },
+    lsRatio: {
+      ratio: 2.81, longAccountPct: 73.8, shortAccountPct: 26.2,
+      trend24h: "rising", sparkline: [2.10, 2.25, 2.40, 2.55, 2.65, 2.73, 2.81],
+      status: "extreme", summary: "2.81 · extreme crowded long",
+      crossExchange: { hl: 2.81, binance: 2.15, bybit: 2.32 },
+    },
     liquidations: { total1hUsd: 8e6, longUsd: 2e6, shortUsd: 6e6,
       largestUsd: 0.9e6, largestSide: "short",
       pattern24h: [1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 4, 3, 2, 1, 1, 1],
@@ -313,6 +375,10 @@ const CONDITION_LABELS: Record<ConditionKind, { label: string; unit: string; cat
   buyFlowAbove: { label: "Buy Flow >", unit: "%", category: "Order Flow" },
   largeFillDetected: { label: "Large fill >", unit: "USD", category: "Order Flow" },
   netFlow5minAbove: { label: "Net flow 5min >", unit: "USD", category: "Order Flow" },
+  lsRatioAbove: { label: "L/S Ratio >", unit: "", category: "Long/Short Ratio" },
+  lsRatioBelow: { label: "L/S Ratio <", unit: "", category: "Long/Short Ratio" },
+  lsRatioFlipBullish: { label: "L/S flips bullish (>1)", unit: "", category: "Long/Short Ratio" },
+  lsRatioFlipBearish: { label: "L/S flips bearish (<1)", unit: "", category: "Long/Short Ratio" },
   liquidations1hAbove: { label: "Liquidations 1h >", unit: "USD", category: "Liquidations" },
   longLiquidationsAbove: { label: "Long liq 1h >", unit: "USD", category: "Liquidations" },
   shortLiquidationsAbove: { label: "Short liq 1h >", unit: "USD", category: "Liquidations" },
@@ -335,6 +401,10 @@ function getCurrentValue(kind: ConditionKind, data: SymbolDetail): number {
     case "buyFlowAbove": return data.orderFlow.buyPct;
     case "largeFillDetected": return Math.max(...data.orderFlow.largeFills.map(f => f.sizeUsd), 0);
     case "netFlow5minAbove": return Math.abs(data.orderFlow.netUsd);
+    case "lsRatioAbove":
+    case "lsRatioBelow": return data.lsRatio.ratio;
+    case "lsRatioFlipBullish":
+    case "lsRatioFlipBearish": return data.lsRatio.ratio;
     case "liquidations1hAbove": return data.liquidations.total1hUsd;
     case "longLiquidationsAbove": return data.liquidations.longUsd;
     case "shortLiquidationsAbove": return data.liquidations.shortUsd;
@@ -440,7 +510,7 @@ export default function TradePreviewPage() {
     else newSet.add(kind);
     setExpandedCategories(newSet);
   };
-  const expandAll = () => setExpandedCategories(new Set(["funding", "oi", "orderFlow", "liquidations", "orderBook", "onChain", "hlActivity"]));
+  const expandAll = () => setExpandedCategories(new Set(["funding", "oi", "orderFlow", "lsRatio", "liquidations", "orderBook", "onChain", "hlActivity"]));
   const collapseAll = () => setExpandedCategories(new Set());
 
   const [candles, setCandles] = useState<CandleData[]>([]);
@@ -502,6 +572,10 @@ export default function TradePreviewPage() {
         case "buyFlowAbove": return sym.orderFlow.buyPct > c.threshold;
         case "largeFillDetected": return sym.orderFlow.largeFills.some(f => f.sizeUsd > c.threshold);
         case "netFlow5minAbove": return Math.abs(sym.orderFlow.netUsd) > c.threshold;
+        case "lsRatioAbove": return sym.lsRatio.ratio > c.threshold;
+        case "lsRatioBelow": return sym.lsRatio.ratio < c.threshold;
+        case "lsRatioFlipBullish": return sym.lsRatio.ratio > 1.0;
+        case "lsRatioFlipBearish": return sym.lsRatio.ratio < 1.0;
         case "liquidations1hAbove": return sym.liquidations.total1hUsd > c.threshold;
         case "longLiquidationsAbove": return sym.liquidations.longUsd > c.threshold;
         case "shortLiquidationsAbove": return sym.liquidations.shortUsd > c.threshold;
@@ -590,7 +664,7 @@ export default function TradePreviewPage() {
         <div className="border-b border-bg-line bg-bg-panel/40 px-4 py-2">
           <span className="font-mono text-[11px] text-signal">▶ PREVIEW</span>
           <span className="font-mono text-[11px] text-ink-faint"> · </span>
-          <span className="font-mono text-[11px] text-ink-mute">Trade page mockup (W2 Day 13 v13) — 3-tab middle column · 17 triggers · distance viz · popular combos</span>
+          <span className="font-mono text-[11px] text-ink-mute">Trade page mockup (W2 Day 13 v14) — 6 active signal cards · 22 triggers · L/S Ratio · 5 popular combos</span>
         </div>
 
         <div className="grid grid-cols-[1fr_300px_320px]">
@@ -884,7 +958,7 @@ function MiddleColumn(props: MiddleColumnProps) {
       <div className="flex border-b border-bg-line">
         <TabButton active={activeTab === "book"} onClick={() => setActiveTab("book")} label="Book" />
         <TabButton active={activeTab === "trades"} onClick={() => setActiveTab("trades")} label="Trades" />
-        <TabButton active={activeTab === "signals"} onClick={() => setActiveTab("signals")} label="Signals" emphasis count={7} />
+        <TabButton active={activeTab === "signals"} onClick={() => setActiveTab("signals")} label="Signals" emphasis count={8} />
       </div>
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
@@ -993,7 +1067,7 @@ function TradesPanel({ data, symbol }: { data: SymbolDetail; symbol: Symbol }) {
 // ═════════════════════════════════════════════════════════════════════════════
 function SignalsPanel(props: MiddleColumnProps) {
   const { data, expandedCategories, onToggleCategory, onAddTrigger, onExpandAll, onCollapseAll } = props;
-  const allExpanded = expandedCategories.size === 7;
+  const allExpanded = expandedCategories.size === 8;
   return (
     <div className="p-3">
       <div className="mb-3 flex items-center justify-between border-b border-bg-line pb-2">
@@ -1007,13 +1081,14 @@ function SignalsPanel(props: MiddleColumnProps) {
         <FundingCategory data={data} expandedCategories={expandedCategories} onToggleCategory={onToggleCategory} onAddTrigger={onAddTrigger} />
         <OICategory data={data} expandedCategories={expandedCategories} onToggleCategory={onToggleCategory} onAddTrigger={onAddTrigger} />
         <OrderFlowCategory data={data} expandedCategories={expandedCategories} onToggleCategory={onToggleCategory} onAddTrigger={onAddTrigger} />
+        <LSRatioCategory data={data} expandedCategories={expandedCategories} onToggleCategory={onToggleCategory} onAddTrigger={onAddTrigger} />
         <LiquidationsCategory data={data} expandedCategories={expandedCategories} onToggleCategory={onToggleCategory} onAddTrigger={onAddTrigger} />
         <OrderBookCategory data={data} expandedCategories={expandedCategories} onToggleCategory={onToggleCategory} onAddTrigger={onAddTrigger} />
         <OnChainCategory expandedCategories={expandedCategories} onToggleCategory={onToggleCategory} />
         <HLActivityCategory expandedCategories={expandedCategories} onToggleCategory={onToggleCategory} />
       </div>
       <p className="mt-4 border-t border-bg-line pt-3 font-mono text-[10px] text-ink-faint">
-        Each category exposes multiple trigger options. Use them as rule conditions in the Trigger panel.
+        6 active signal cards + 2 V2 placeholders. Each exposes multiple trigger options.
       </p>
     </div>
   );
@@ -1188,6 +1263,93 @@ function OrderFlowCategory({ data, expandedCategories, onToggleCategory, onAddTr
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── L/S Ratio (NEW v14) ──────────────────────────────────────────────────────
+function LSRatioCategory({ data, expandedCategories, onToggleCategory, onAddTrigger }: CategoryProps) {
+  const expanded = expandedCategories.has("lsRatio");
+  const ls = data.lsRatio;
+  const trendArrow = ls.trend24h === "rising" ? "↑" : ls.trend24h === "falling" ? "↓" : "→";
+  // Status interpretation:
+  // ratio > 2.0 = extreme long bias (fade signal)
+  // ratio < 0.5 = extreme short bias (bounce signal)
+  // ratio 0.8-1.2 = balanced
+  const isExtreme = ls.ratio > 2.5 || ls.ratio < 0.4;
+  const isLongBias = ls.ratio > 1.0;
+  return (
+    <div>
+      <CategoryHeader name="Long/Short Ratio" summary={ls.summary} status={ls.status} expanded={expanded} onToggle={() => onToggleCategory("lsRatio")} />
+      {expanded && (
+        <div className="mt-1.5 space-y-2 border border-bg-line bg-bg-panel/30 p-3">
+          <DetailRow label="Ratio" value={`${ls.ratio.toFixed(2)} ${trendArrow}`}
+            valueColor={isExtreme ? "text-red-400" : isLongBias ? "text-amber-300" : "text-blue-300"} />
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-signal">Long {ls.longAccountPct.toFixed(1)}%</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-red-400">{ls.shortAccountPct.toFixed(1)}% Short</span>
+            </div>
+            <div className="flex h-1.5 overflow-hidden rounded-full bg-bg-line">
+              <div className="bg-signal" style={{ width: `${ls.longAccountPct}%` }} />
+              <div className="bg-red-500" style={{ width: `${ls.shortAccountPct}%` }} />
+            </div>
+          </div>
+          <div className="border-t border-bg-line pt-2">
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">24h trend</div>
+            <Sparkline data={ls.sparkline} />
+          </div>
+          <div className="border-t border-bg-line pt-2">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Cross-exchange</span>
+              <span className="font-mono text-[9px] uppercase text-ink-faint">V2 expansion</span>
+            </div>
+            <div className="space-y-0.5">
+              <CexLSRow label="HL" value={ls.crossExchange.hl} highlight />
+              <CexLSRow label="Binance" value={ls.crossExchange.binance} />
+              <CexLSRow label="Bybit" value={ls.crossExchange.bybit} />
+            </div>
+          </div>
+          {isExtreme && (
+            <div className={`border ${ls.ratio > 1 ? "border-red-500/40 bg-red-500/5 text-red-300" : "border-blue-500/40 bg-blue-500/5 text-blue-300"} px-2 py-1 font-mono text-[10px]`}>
+              ⚠ Extreme {ls.ratio > 1 ? "long-heavy" : "short-heavy"} — contrarian setup
+            </div>
+          )}
+          <div className="border-t border-bg-line pt-2">
+            <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Add trigger</div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <TriggerBtn label={`L/S > ${(ls.ratio * 1.2).toFixed(1)}`} onClick={() => onAddTrigger("lsRatioAbove", +(ls.ratio * 1.2).toFixed(2))} />
+              <TriggerBtn label={`L/S < ${(ls.ratio * 0.7).toFixed(1)}`} onClick={() => onAddTrigger("lsRatioBelow", +(ls.ratio * 0.7).toFixed(2))} />
+              <TriggerBtn label="Flip bullish (>1)" onClick={() => onAddTrigger("lsRatioFlipBullish", 1.0)} />
+              <TriggerBtn label="Flip bearish (<1)" onClick={() => onAddTrigger("lsRatioFlipBearish", 1.0)} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CexLSRow({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
+  if (value === 0) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className={`w-14 shrink-0 font-mono text-[10px] ${highlight ? "text-signal" : "text-ink-mute"}`}>{label}</span>
+        <span className="font-mono text-[10px] text-ink-faint">—</span>
+      </div>
+    );
+  }
+  const isLong = value > 1.0;
+  const widthPct = Math.min((isLong ? value : 1 / value) / 3 * 100, 100);
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`w-14 shrink-0 font-mono text-[10px] ${highlight ? "text-signal" : "text-ink-mute"}`}>{label}</span>
+      <span className={`w-12 shrink-0 text-right font-mono text-[10px] ${isLong ? "text-amber-300" : "text-blue-300"}`}>
+        {value.toFixed(2)}
+      </span>
+      <div className="flex-1 h-1 overflow-hidden rounded-sm bg-bg-line">
+        <div className={`h-full ${isLong ? "bg-amber-400/60" : "bg-blue-400/60"}`} style={{ width: `${widthPct}%` }} />
+      </div>
     </div>
   );
 }
@@ -1662,6 +1824,55 @@ function TriggerPanel(props: OrderColumnProps) {
             </div>
           </div>
         </div>
+
+        {/* Slippage protection (market execution only) */}
+        {executionType === "market" && (
+          <div className="mt-2">
+            <label className="block text-[10px] uppercase tracking-[0.1em] text-ink-faint">Max slippage</label>
+            <div className="mt-1 flex items-center border border-bg-line bg-bg">
+              <input type="number" step="0.1" value={props.slippage} onChange={(e) => props.setSlippage(parseFloat(e.target.value) || 0)}
+                className="flex-1 bg-transparent px-2 py-1 font-mono text-xs outline-none" />
+              <span className="pr-2 font-mono text-[10px] text-ink-faint">%</span>
+            </div>
+            <p className="mt-1 font-mono text-[9px] text-ink-faint">Protects against bad fills when trigger fires during volatility.</p>
+          </div>
+        )}
+
+        {/* TP/SL toggle (OCO pattern) */}
+        <div className="mt-2">
+          <label className="flex items-center gap-2 text-[11px]">
+            <input type="checkbox" checked={props.tpsl} onChange={(e) => props.setTpsl(e.target.checked)} className="accent-signal" />
+            <span className="text-ink-mute">Auto Take Profit / Stop Loss</span>
+          </label>
+          {props.tpsl && (
+            <div className="mt-1.5 ml-5 grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[9px] uppercase tracking-[0.1em] text-ink-faint">TP (% gain)</label>
+                <div className="mt-0.5 flex items-center border border-bg-line bg-bg">
+                  <input type="number" step="1" defaultValue={5} className="flex-1 bg-transparent px-1 py-0.5 font-mono text-[10px] outline-none" />
+                  <span className="pr-1 font-mono text-[9px] text-signal">%</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[9px] uppercase tracking-[0.1em] text-ink-faint">SL (% loss)</label>
+                <div className="mt-0.5 flex items-center border border-bg-line bg-bg">
+                  <input type="number" step="1" defaultValue={2} className="flex-1 bg-transparent px-1 py-0.5 font-mono text-[10px] outline-none" />
+                  <span className="pr-1 font-mono text-[9px] text-red-400">%</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <p className="mt-1 font-mono text-[9px] text-ink-faint">OCO pattern: one fills → other auto-cancels.</p>
+        </div>
+
+        {/* Price reference for price-based triggers */}
+        {triggerConditions.some(c => c.kind === "priceAbove" || c.kind === "priceBelow") && (
+          <div className="mt-2 border border-bg-line bg-bg-panel/50 p-2 text-[10px]">
+            <span className="font-mono text-ink-faint">Price reference:</span>
+            <span className="ml-1.5 font-mono text-signal">Mark Price</span>
+            <p className="mt-0.5 font-mono text-[9px] text-ink-faint">Avoids wick-based false triggers. Industry best practice.</p>
+          </div>
+        )}
       </div>
 
       {/* ═══ PREVIEW section (D13) ═══ */}
@@ -1811,7 +2022,7 @@ function TriggerLibraryModal({ symbol, data, onClose, onSelectCondition, onApply
             <h2 className="font-mono text-sm uppercase tracking-[0.15em] text-amber-300">Trigger Library</h2>
             <button onClick={onClose} className="font-mono text-xs uppercase text-ink-mute hover:text-ink">close ×</button>
           </div>
-          <p className="mt-1 text-[11px] text-ink-mute">17 trigger conditions + popular combos for {symbol}</p>
+          <p className="mt-1 text-[11px] text-ink-mute">22 trigger conditions + 5 popular combos for {symbol}</p>
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search conditions…"
             className="mt-2 w-full border border-bg-line bg-bg-panel px-3 py-2 font-mono text-xs outline-none focus:border-amber-500/50" />
         </div>
@@ -1841,7 +2052,7 @@ function TriggerLibraryModal({ symbol, data, onClose, onSelectCondition, onApply
           </div>
 
           {/* All conditions by category */}
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.15em] text-ink-faint">All Conditions (17)</div>
+          <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.15em] text-ink-faint">All Conditions (22)</div>
           {Object.entries(grouped).map(([category, conditions]) => (
             conditions.length > 0 && (
               <div key={category} className="mb-4">
@@ -2049,7 +2260,7 @@ function MobileMarketData(props: {
       <div className="flex border-b border-bg-line">
         <button onClick={() => setMarketDataSubTab("book")} className={`flex-1 py-2.5 font-mono text-xs uppercase tracking-[0.1em] ${marketDataSubTab === "book" ? "border-b-2 border-signal text-signal" : "text-ink-mute"}`}>Book</button>
         <button onClick={() => setMarketDataSubTab("trades")} className={`flex-1 py-2.5 font-mono text-xs uppercase tracking-[0.1em] ${marketDataSubTab === "trades" ? "border-b-2 border-signal text-signal" : "text-ink-mute"}`}>Trades</button>
-        <button onClick={() => setMarketDataSubTab("signal")} className={`flex-1 py-2.5 font-mono text-xs uppercase tracking-[0.1em] ${marketDataSubTab === "signal" ? "border-b-2 border-amber-400 text-amber-300 bg-amber-500/5" : "text-amber-400/70 bg-amber-500/5"}`}>✦ Signals (7)</button>
+        <button onClick={() => setMarketDataSubTab("signal")} className={`flex-1 py-2.5 font-mono text-xs uppercase tracking-[0.1em] ${marketDataSubTab === "signal" ? "border-b-2 border-amber-400 text-amber-300 bg-amber-500/5" : "text-amber-400/70 bg-amber-500/5"}`}>✦ Signals (8)</button>
       </div>
       <div>
         {marketDataSubTab === "book" && <OrderBookLadder data={data} symbol={symbol} />}
