@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { CandleChart, generateSyntheticCandles, type CandleData, type PriceLine } from "@/components/CandleChart";
+import { useSnapshots } from "@/lib/hyperliquid/useSnapshots";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -666,6 +667,35 @@ export default function TradePreviewPage() {
 
   const data = SYMBOL_DATA[symbol];
 
+  // ── Live data integration (Day 16) ──────────────────────────────────────
+  // useSnapshots polls /api/v1/snapshots every 5s. When live data is available
+  // for the current symbol, we use it for the top stat bar. Falls back to mock
+  // data if API is unavailable or still loading. Mock SYMBOL_DATA still used
+  // for signal card details (funding sparkline, OI history, etc.) which need
+  // historical data not yet wired to live API (those come in Day 17-19).
+  const { snapshots: liveSnapshots, loading: liveLoading, error: liveError, lastUpdated: liveLastUpdated } = useSnapshots();
+  const liveSnapshot = liveSnapshots?.[symbol] ?? null;
+  // Merged data for top stat bar — live takes priority, falls back to mock
+  const topBarData = liveSnapshot ? {
+    mark: liveSnapshot.markPx,
+    oracle: liveSnapshot.oraclePx,
+    basis: liveSnapshot.basisPct,
+    change24h: liveSnapshot.changePct24h,
+    volume24h: liveSnapshot.dayVolumeUsd,
+    oi: liveSnapshot.openInterestUsd,
+    fundingPct: liveSnapshot.funding1hPct,
+    countdown: data.countdown, // mock — countdown to next funding (would compute from now())
+  } : {
+    mark: data.mark,
+    oracle: data.oracle,
+    basis: data.basis,
+    change24h: data.change24h,
+    volume24h: data.volume24h,
+    oi: data.oi,
+    fundingPct: data.fundingPct,
+    countdown: data.countdown,
+  };
+
   const addTriggerCondition = (kind: ConditionKind, suggestedThreshold: number) => {
     if (triggerConditions.length >= 3) {
       alert("V1 alpha allows maximum 3 trigger conditions per rule.\nPro tier (V2) will extend this.");
@@ -828,11 +858,16 @@ export default function TradePreviewPage() {
     <main className="min-h-dvh bg-bg text-ink">
       {/* ═════════════════ DESKTOP ═════════════════ */}
       <div className="hidden lg:block">
-        <DesktopHeader symbol={symbol} setSymbol={(s) => { setSymbol(s); setTriggerConditions([]); setViewingRuleId(null); }} data={data} />
+        <DesktopHeader
+          symbol={symbol}
+          setSymbol={(s) => { setSymbol(s); setTriggerConditions([]); setViewingRuleId(null); }}
+          topBarData={topBarData}
+          liveStatus={{ isLive: !!liveSnapshot, loading: liveLoading, error: liveError, lastUpdated: liveLastUpdated }}
+        />
         <div className="border-b border-bg-line bg-bg-panel/40 px-4 py-2">
           <span className="font-mono text-[11px] text-signal">▶ PREVIEW</span>
           <span className="font-mono text-[11px] text-ink-faint"> · </span>
-          <span className="font-mono text-[11px] text-ink-mute">Trade page mockup (W2 Day 13 v15) — Active Rules tab · Trigger History enhanced · Chart rule indicator</span>
+          <span className="font-mono text-[11px] text-ink-mute">Trade page (W3 Day 16) — Top stat bar LIVE from Hyperliquid · signal cards still mock</span>
         </div>
 
         <div className="grid grid-cols-[1fr_300px_320px]">
@@ -910,7 +945,7 @@ export default function TradePreviewPage() {
         <div className="border-b border-bg-line bg-bg-panel/40 px-3 py-1.5">
           <span className="font-mono text-[10px] text-signal">▶ PREVIEW</span>
           <span className="font-mono text-[10px] text-ink-faint"> · </span>
-          <span className="font-mono text-[10px] text-ink-mute">Mobile (Day 13 v13)</span>
+          <span className="font-mono text-[10px] text-ink-mute">Mobile (W3 Day 16) — Top stat LIVE</span>
         </div>
 
         <div className="pb-[68px]">
@@ -928,6 +963,8 @@ export default function TradePreviewPage() {
               onAddTrigger={addTriggerCondition}
               onExpandAll={expandAll}
               onCollapseAll={collapseAll}
+              topBarData={topBarData}
+              liveStatus={{ isLive: !!liveSnapshot, loading: liveLoading, error: liveError, lastUpdated: liveLastUpdated }}
               side={side} setSide={setSide}
               sizePct={sizePct} setSizePct={setSizePct}
               sizeRaw={sizeRaw} setSizeRaw={setSizeRaw}
@@ -991,7 +1028,37 @@ function IconButton({ children, title }: { children: React.ReactNode; title?: st
 // ═════════════════════════════════════════════════════════════════════════════
 // DESKTOP HEADER
 // ═════════════════════════════════════════════════════════════════════════════
-function DesktopHeader({ symbol, setSymbol, data }: { symbol: Symbol; setSymbol: (s: Symbol) => void; data: SymbolDetail }) {
+type TopBarData = {
+  mark: number;
+  oracle: number;
+  basis: number;
+  change24h: number;
+  volume24h: number;
+  oi: number;
+  fundingPct: number;
+  countdown: string;
+};
+
+type LiveStatus = {
+  isLive: boolean;
+  loading: boolean;
+  error: string | null;
+  lastUpdated: number | null;
+};
+
+function DesktopHeader({ symbol, setSymbol, topBarData, liveStatus }: {
+  symbol: Symbol;
+  setSymbol: (s: Symbol) => void;
+  topBarData: TopBarData;
+  liveStatus: LiveStatus;
+}) {
+  // Format mark price — adjust decimals based on magnitude
+  const fmtPrice = (p: number) => {
+    if (p < 1) return p.toFixed(4);
+    if (p < 100) return p.toFixed(3);
+    if (p < 1000) return p.toFixed(2);
+    return p.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  };
   return (
     <header className="border-b border-bg-line">
       <div className="flex items-center justify-between px-4 py-3">
@@ -1008,6 +1075,7 @@ function DesktopHeader({ symbol, setSymbol, data }: { symbol: Symbol; setSymbol:
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <LiveIndicator status={liveStatus} />
           <button className="border border-signal/60 bg-signal/10 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.15em] text-signal hover:bg-signal/20">Connect</button>
           <IconButton title="Language"><GlobeIcon /></IconButton>
           <IconButton title="Settings"><GearIcon /></IconButton>
@@ -1022,13 +1090,13 @@ function DesktopHeader({ symbol, setSymbol, data }: { symbol: Symbol; setSymbol:
           <span className="border border-bg-line bg-bg-panel px-2 py-2 font-mono text-xs text-ink-mute">10x</span>
         </div>
         <div className="flex items-center gap-6 text-xs">
-          <Stat label="Mark" value={data.mark.toLocaleString()} />
-          <Stat label="Oracle" value={data.oracle.toLocaleString()} />
-          <Stat label="Basis" value={`${data.basis > 0 ? "+" : ""}${data.basis.toFixed(3)}%`} color={data.basis > 0 ? "text-signal" : "text-red-400"} />
-          <Stat label="24h Change" value={`${data.change24h > 0 ? "+" : ""}${data.change24h.toFixed(2)}%`} color={data.change24h > 0 ? "text-signal" : "text-red-400"} />
-          <Stat label="24h Volume" value={formatBig(data.volume24h)} />
-          <Stat label="Open Interest" value={formatBig(data.oi)} />
-          <Stat label="Funding / Countdown" value={`${data.fundingPct.toFixed(4)}%`} sub={data.countdown} />
+          <Stat label="Mark" value={fmtPrice(topBarData.mark)} />
+          <Stat label="Oracle" value={fmtPrice(topBarData.oracle)} />
+          <Stat label="Basis" value={`${topBarData.basis > 0 ? "+" : ""}${topBarData.basis.toFixed(3)}%`} color={topBarData.basis > 0 ? "text-signal" : "text-red-400"} />
+          <Stat label="24h Change" value={`${topBarData.change24h > 0 ? "+" : ""}${topBarData.change24h.toFixed(2)}%`} color={topBarData.change24h > 0 ? "text-signal" : "text-red-400"} />
+          <Stat label="24h Volume" value={formatBig(topBarData.volume24h)} />
+          <Stat label="Open Interest" value={formatBig(topBarData.oi)} />
+          <Stat label="Funding / Countdown" value={`${topBarData.fundingPct.toFixed(4)}%`} sub={topBarData.countdown} />
         </div>
         <div className="ml-auto flex items-center gap-px border border-bg-line shrink-0">
           {["Cross", "10x", "Classic"].map((m, i) => (
@@ -1037,6 +1105,42 @@ function DesktopHeader({ symbol, setSymbol, data }: { symbol: Symbol; setSymbol:
         </div>
       </div>
     </header>
+  );
+}
+
+// ── Live status indicator (Day 16) ──────────────────────────────────────────
+function LiveIndicator({ status }: { status: LiveStatus }) {
+  if (status.error) {
+    return (
+      <div className="flex items-center gap-1.5 border border-red-500/40 bg-red-500/10 px-2 py-1 font-mono text-[10px]">
+        <span className="text-red-400">●</span>
+        <span className="text-red-400 uppercase tracking-[0.1em]">Offline</span>
+      </div>
+    );
+  }
+  if (status.loading && !status.isLive) {
+    return (
+      <div className="flex items-center gap-1.5 border border-bg-line bg-bg-panel px-2 py-1 font-mono text-[10px]">
+        <span className="text-ink-mute animate-pulse">●</span>
+        <span className="text-ink-mute uppercase tracking-[0.1em]">Loading…</span>
+      </div>
+    );
+  }
+  if (status.isLive) {
+    const ageSec = status.lastUpdated ? Math.floor((Date.now() - status.lastUpdated) / 1000) : 0;
+    return (
+      <div className="flex items-center gap-1.5 border border-signal/40 bg-signal/10 px-2 py-1 font-mono text-[10px]" title={`Last update: ${ageSec}s ago`}>
+        <span className="text-signal animate-pulse">●</span>
+        <span className="text-signal uppercase tracking-[0.1em]">Live</span>
+      </div>
+    );
+  }
+  // Fallback: mock mode (initial load)
+  return (
+    <div className="flex items-center gap-1.5 border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[10px]" title="Showing mock data — live feed not yet connected">
+      <span className="text-amber-400">●</span>
+      <span className="text-amber-300 uppercase tracking-[0.1em]">Mock</span>
+    </div>
   );
 }
 
@@ -2570,11 +2674,19 @@ type MobileMarketsProps = OrderColumnProps & {
   onAddTrigger: (kind: ConditionKind, threshold: number) => void;
   onExpandAll: () => void;
   onCollapseAll: () => void;
+  topBarData: TopBarData;
+  liveStatus: LiveStatus;
 };
 
 function MobileMarkets(props: MobileMarketsProps) {
   const { symbol, setSymbol, data, candles, subTab, setSubTab, priceLines, onPriceLineClick, nonPriceRules,
-    marketDataSubTab, setMarketDataSubTab } = props;
+    marketDataSubTab, setMarketDataSubTab, topBarData, liveStatus } = props;
+  const fmtPrice = (p: number) => {
+    if (p < 1) return p.toFixed(4);
+    if (p < 100) return p.toFixed(3);
+    if (p < 1000) return p.toFixed(2);
+    return p.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  };
   return (
     <div>
       <div className="border-b border-bg-line px-3 py-3">
@@ -2585,11 +2697,12 @@ function MobileMarkets(props: MobileMarketsProps) {
               {(["BTC", "ETH", "SOL", "HYPE", "DOGE"] as Symbol[]).map(s => <option key={s} value={s}>{s}-USDC</option>)}
             </select>
             <span className="text-[10px] text-signal">10x</span>
+            <LiveIndicator status={liveStatus} />
           </div>
           <div className="text-right">
-            <div className="font-mono text-lg">{data.mark.toLocaleString()}</div>
-            <div className={`font-mono text-xs ${data.change24h > 0 ? "text-signal" : "text-red-400"}`}>
-              {data.change24h > 0 ? "+" : ""}{data.change24h.toFixed(2)}%
+            <div className="font-mono text-lg">{fmtPrice(topBarData.mark)}</div>
+            <div className={`font-mono text-xs ${topBarData.change24h > 0 ? "text-signal" : "text-red-400"}`}>
+              {topBarData.change24h > 0 ? "+" : ""}{topBarData.change24h.toFixed(2)}%
             </div>
           </div>
         </div>
