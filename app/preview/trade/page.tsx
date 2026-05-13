@@ -667,6 +667,27 @@ export default function TradePreviewPage() {
 
   const data = SYMBOL_DATA[symbol];
 
+  // ── Funding countdown (NEW v16.1) ────────────────────────────────────────
+  // Hyperliquid pays funding every hour on the hour. Compute remaining time
+  // to next funding event. Updates every second.
+  const [countdown, setCountdown] = useState<string>("");
+  useEffect(() => {
+    const compute = () => {
+      const now = new Date();
+      const nextHour = new Date(now);
+      nextHour.setMinutes(0, 0, 0);
+      nextHour.setHours(now.getHours() + 1);
+      const diffMs = nextHour.getTime() - now.getTime();
+      const totalSec = Math.floor(diffMs / 1000);
+      const min = Math.floor(totalSec / 60);
+      const sec = totalSec % 60;
+      return `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+    };
+    setCountdown(compute());
+    const interval = setInterval(() => setCountdown(compute()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // ── Live data integration (Day 16) ──────────────────────────────────────
   // useSnapshots polls /api/v1/snapshots every 5s. When live data is available
   // for the current symbol, we use it for the top stat bar. Falls back to mock
@@ -684,7 +705,7 @@ export default function TradePreviewPage() {
     volume24h: liveSnapshot.dayVolumeUsd,
     oi: liveSnapshot.openInterestUsd,
     fundingPct: liveSnapshot.funding1hPct,
-    countdown: data.countdown, // mock — countdown to next funding (would compute from now())
+    countdown, // live — computed every second (next hour boundary)
   } : {
     mark: data.mark,
     oracle: data.oracle,
@@ -693,7 +714,7 @@ export default function TradePreviewPage() {
     volume24h: data.volume24h,
     oi: data.oi,
     fundingPct: data.fundingPct,
-    countdown: data.countdown,
+    countdown,
   };
 
   const addTriggerCondition = (kind: ConditionKind, suggestedThreshold: number) => {
