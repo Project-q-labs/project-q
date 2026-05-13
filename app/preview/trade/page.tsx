@@ -21,7 +21,7 @@ type ConditionKind =
 type OrderType = "market" | "limit" | "trigger";
 type Side = "long" | "short";
 type MarginMode = "cross" | "isolated";
-type BottomTab = "balances" | "positions" | "outcomes" | "openOrders" | "twap" | "tradeHistory" | "fundingHistory" | "orderHistory" | "triggerHistory";
+type BottomTab = "balances" | "positions" | "outcomes" | "openOrders" | "twap" | "tradeHistory" | "fundingHistory" | "orderHistory" | "activeRules" | "triggerHistory";
 type MobileTab = "markets" | "trade" | "account";
 type MarketsSubTab = "chart" | "marketData" | "trigger";
 type MarketDataSubTab = "book" | "trades" | "signal";
@@ -35,14 +35,33 @@ type TriggerCondition = {
   symbol: Symbol;
 };
 
+type RuleStatus = "active" | "paused" | "armed"; // armed = all conditions met, would fire now
 type SavedRule = {
   id: string;
+  name?: string;
   symbol: Symbol;
   conditions: TriggerCondition[];
   side: Side;
   sizePct: number;
   executionType: "market" | "limit";
   createdAt: number;
+  status: RuleStatus;
+  lastCheckedAt?: number;
+};
+
+// Mock historical fired rules (for Trigger History)
+type FiredRuleHistory = {
+  id: string;
+  ruleName: string;
+  symbol: Symbol;
+  conditions: string; // human-readable description
+  firedAt: number;
+  fireReason: string; // what condition triggered fire
+  outcome: "executed" | "skipped" | "failed";
+  action?: string; // "Short DOGE 3% @ $0.1102"
+  resultPnl?: number; // realized PnL if closed
+  resultPnlPct?: number;
+  isOpen?: boolean; // position still open
 };
 
 // Popular combinations (D14)
@@ -464,10 +483,137 @@ function formatBps(n: number): string {
   return `${n > 0 ? "+" : ""}${n.toFixed(0)} bps`;
 }
 
-const MOCK_TRIGGER_HISTORY = [
-  { time: "2026-05-11 14:23", rule: "BTC funding extreme — short", trigger: "Funding APR > 25%", fired: "11.2% (watching)", status: "watching" as const, action: undefined as string | undefined },
-  { time: "2026-05-10 09:15", rule: "DOGE crowded long fade", trigger: "Funding APR > 30%", fired: "38.7% ✓ fired", status: "executed" as const, action: "Short DOGE 3% @ $0.1102" },
-  { time: "2026-05-09 18:42", rule: "SOL momentum entry", trigger: "Buy Flow > 60%", fired: "64% ✓ fired", status: "executed" as const, action: "Long SOL 5% @ $94.20" },
+const MOCK_TRIGGER_HISTORY: FiredRuleHistory[] = [
+  {
+    id: "h1",
+    ruleName: "DOGE crowded long fade",
+    symbol: "DOGE",
+    conditions: "Funding APR > 30% AND L/S > 2.5",
+    firedAt: Date.now() - 1000 * 60 * 60 * 2, // 2h ago
+    fireReason: "Funding APR hit 38.7% · L/S hit 2.81",
+    outcome: "executed",
+    action: "Short DOGE 3% @ $0.1102",
+    resultPnl: 24.50, resultPnlPct: 4.2, isOpen: true,
+  },
+  {
+    id: "h2",
+    ruleName: "SOL momentum entry",
+    symbol: "SOL",
+    conditions: "Buy Flow > 60% AND OI 1h > 1%",
+    firedAt: Date.now() - 1000 * 60 * 60 * 18, // 18h ago
+    fireReason: "Buy flow hit 64% · OI 1h hit 1.2%",
+    outcome: "executed",
+    action: "Long SOL 5% @ $94.20",
+    resultPnl: 48.10, resultPnlPct: 1.03, isOpen: false,
+  },
+  {
+    id: "h3",
+    ruleName: "ETH funding flip",
+    symbol: "ETH",
+    conditions: "Funding flips bearish",
+    firedAt: Date.now() - 1000 * 60 * 60 * 26, // 1d ago
+    fireReason: "Funding turned negative",
+    outcome: "executed",
+    action: "Short ETH 4% @ $2,348",
+    resultPnl: -12.40, resultPnlPct: -0.53, isOpen: false,
+  },
+  {
+    id: "h4",
+    ruleName: "BTC funding extreme — short",
+    symbol: "BTC",
+    conditions: "Funding APR > 25%",
+    firedAt: Date.now() - 1000 * 60 * 60 * 48, // 2d ago
+    fireReason: "Funding APR hit 26.4%",
+    outcome: "skipped",
+    action: "Position already open — skipped (Reduce Only off)",
+  },
+  {
+    id: "h5",
+    ruleName: "HYPE crowded long",
+    symbol: "HYPE",
+    conditions: "L/S > 2.0 AND Funding > 20%",
+    firedAt: Date.now() - 1000 * 60 * 60 * 60, // 2.5d ago
+    fireReason: "L/S hit 2.15 · Funding 21.3%",
+    outcome: "executed",
+    action: "Short HYPE 3% @ $42.85",
+    resultPnl: 18.25, resultPnlPct: 1.42, isOpen: false,
+  },
+  {
+    id: "h6",
+    ruleName: "BTC liquidation cascade",
+    symbol: "BTC",
+    conditions: "Long liq > $50M AND Buy flow > 55%",
+    firedAt: Date.now() - 1000 * 60 * 60 * 72, // 3d ago
+    fireReason: "Long liq hit $62M · Buy flow 58%",
+    outcome: "executed",
+    action: "Long BTC 4% @ $78,420",
+    resultPnl: 156.80, resultPnlPct: 5.00, isOpen: false,
+  },
+  {
+    id: "h7",
+    ruleName: "DOGE crowded long fade",
+    symbol: "DOGE",
+    conditions: "Funding APR > 30% AND L/S > 2.5",
+    firedAt: Date.now() - 1000 * 60 * 60 * 96, // 4d ago
+    fireReason: "Funding APR hit 32.1% · L/S hit 2.62",
+    outcome: "executed",
+    action: "Short DOGE 3% @ $0.1085",
+    resultPnl: -8.40, resultPnlPct: -2.58, isOpen: false,
+  },
+];
+
+// Pre-seeded saved rules (for Active Rules tab demo)
+const MOCK_SAVED_RULES_PRESEED: SavedRule[] = [
+  {
+    id: "preseed-1",
+    name: "BTC funding extreme — short",
+    symbol: "BTC",
+    conditions: [
+      { id: "p1c1", kind: "fundingAprAbove", threshold: 25, symbol: "BTC" },
+      { id: "p1c2", kind: "oiChange24hAbove", threshold: 10, symbol: "BTC" },
+    ],
+    side: "short", sizePct: 5, executionType: "market",
+    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
+    status: "active",
+    lastCheckedAt: Date.now() - 1000 * 5,
+  },
+  {
+    id: "preseed-2",
+    name: "SOL momentum entry",
+    symbol: "SOL",
+    conditions: [
+      { id: "p2c1", kind: "buyFlowAbove", threshold: 65, symbol: "SOL" },
+    ],
+    side: "long", sizePct: 3, executionType: "limit",
+    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 5,
+    status: "paused",
+  },
+  {
+    id: "preseed-3",
+    name: "HYPE crowded long",
+    symbol: "HYPE",
+    conditions: [
+      { id: "p3c1", kind: "lsRatioAbove", threshold: 2.5, symbol: "HYPE" },
+      { id: "p3c2", kind: "fundingAprAbove", threshold: 20, symbol: "HYPE" },
+    ],
+    side: "short", sizePct: 4, executionType: "market",
+    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 1,
+    status: "armed", // would fire — HYPE actually has L/S 2.34, funding 22.1 (close but not all met)
+    lastCheckedAt: Date.now() - 1000 * 3,
+  },
+  {
+    id: "preseed-4",
+    name: "DOGE liquidation bounce",
+    symbol: "DOGE",
+    conditions: [
+      { id: "p4c1", kind: "longLiquidationsAbove", threshold: 5_000_000, symbol: "DOGE" },
+      { id: "p4c2", kind: "buyFlowAbove", threshold: 55, symbol: "DOGE" },
+    ],
+    side: "long", sizePct: 2, executionType: "market",
+    createdAt: Date.now() - 1000 * 60 * 60 * 12,
+    status: "active",
+    lastCheckedAt: Date.now() - 1000 * 8,
+  },
 ];
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -491,7 +637,7 @@ export default function TradePreviewPage() {
   const [tif, setTif] = useState<"GTC" | "IOC">("GTC");
   const [bottomTab, setBottomTab] = useState<BottomTab>("positions");
 
-  const [savedRules, setSavedRules] = useState<SavedRule[]>([]);
+  const [savedRules, setSavedRules] = useState<SavedRule[]>(MOCK_SAVED_RULES_PRESEED);
   const [viewingRuleId, setViewingRuleId] = useState<string | null>(null);
 
   const [mobileTab, setMobileTab] = useState<MobileTab>("markets");
@@ -600,12 +746,15 @@ export default function TradePreviewPage() {
     }
     const newRule: SavedRule = {
       id: `rule_${Math.random().toString(36).slice(2, 9)}`,
+      name: `${symbol} ${triggerConditions[0] ? CONDITION_LABELS[triggerConditions[0].kind].category : "trigger"} → ${side}`,
       symbol,
       conditions: triggerConditions.map(c => ({ ...c })),
       side,
       sizePct,
       executionType,
       createdAt: Date.now(),
+      status: "active",
+      lastCheckedAt: Date.now(),
     };
     setSavedRules([...savedRules, newRule]);
     setTriggerConditions([]);
@@ -615,6 +764,25 @@ export default function TradePreviewPage() {
   const handleCancelRule = (ruleId: string) => {
     setSavedRules(savedRules.filter(r => r.id !== ruleId));
     if (viewingRuleId === ruleId) setViewingRuleId(null);
+  };
+
+  const handleUpdateRule = (id: string, updates: Partial<SavedRule>) => {
+    setSavedRules(savedRules.map(r => r.id === id ? { ...r, ...updates } : r));
+  };
+
+  const handleDuplicateRule = (id: string) => {
+    const original = savedRules.find(r => r.id === id);
+    if (!original) return;
+    const dup: SavedRule = {
+      ...original,
+      id: `rule_${Math.random().toString(36).slice(2, 9)}`,
+      name: original.name ? `${original.name} (copy)` : undefined,
+      createdAt: Date.now(),
+      status: "active",
+      lastCheckedAt: Date.now(),
+      conditions: original.conditions.map(c => ({ ...c, id: `c_${Math.random().toString(36).slice(2, 9)}` })),
+    };
+    setSavedRules([...savedRules, dup]);
   };
 
   const priceLines: PriceLine[] = useMemo(() => {
@@ -664,7 +832,7 @@ export default function TradePreviewPage() {
         <div className="border-b border-bg-line bg-bg-panel/40 px-4 py-2">
           <span className="font-mono text-[11px] text-signal">▶ PREVIEW</span>
           <span className="font-mono text-[11px] text-ink-faint"> · </span>
-          <span className="font-mono text-[11px] text-ink-mute">Trade page mockup (W2 Day 13 v14) — 6 active signal cards · 22 triggers · L/S Ratio · 5 popular combos</span>
+          <span className="font-mono text-[11px] text-ink-mute">Trade page mockup (W2 Day 13 v15) — Active Rules tab · Trigger History enhanced · Chart rule indicator</span>
         </div>
 
         <div className="grid grid-cols-[1fr_300px_320px]">
@@ -676,6 +844,8 @@ export default function TradePreviewPage() {
               onPriceLineClick={handlePriceLineClick}
               nonPriceRules={nonPriceRulesForSymbol}
               onShowRule={handlePriceLineClick}
+              allRules={savedRules}
+              onJumpToActiveRules={() => setBottomTab("activeRules")}
             />
           </div>
           <div className="border-r border-bg-line">
@@ -723,7 +893,15 @@ export default function TradePreviewPage() {
           </aside>
         </div>
 
-        <BottomTabsArea activeTab={bottomTab} onTabChange={setBottomTab} />
+        <BottomTabsArea
+          activeTab={bottomTab}
+          onTabChange={setBottomTab}
+          savedRules={savedRules}
+          onUpdateRule={handleUpdateRule}
+          onDeleteRule={handleCancelRule}
+          onDuplicateRule={handleDuplicateRule}
+          currentSymbol={symbol}
+        />
       </div>
 
       {/* ═════════════════ MOBILE ═════════════════ */}
@@ -878,17 +1056,45 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
 // CHART COLUMN (preserved from v12)
 // ═════════════════════════════════════════════════════════════════════════════
 function ChartColumn({
-  candles, symbol, priceLines, onPriceLineClick, nonPriceRules, onShowRule,
+  candles, symbol, priceLines, onPriceLineClick, nonPriceRules, onShowRule, allRules, onJumpToActiveRules,
 }: {
   candles: CandleData[]; symbol: Symbol;
   priceLines: PriceLine[];
   onPriceLineClick: (id: string) => void;
   nonPriceRules: SavedRule[];
   onShowRule: (id: string) => void;
+  allRules: SavedRule[];
+  onJumpToActiveRules: () => void;
 }) {
   const [tf, setTf] = useState("1h");
+  const activeRulesCount = allRules.filter(r => r.status === "active").length;
+  const armedRulesCount = allRules.filter(r => r.status === "armed").length;
+  const totalRulesCount = allRules.length;
   return (
     <div className="p-4">
+      {/* Active Rules indicator row (NEW v15) */}
+      {totalRulesCount > 0 && (
+        <div className="mb-3 flex items-center justify-between border border-amber-500/30 bg-amber-500/5 px-3 py-1.5">
+          <div className="flex items-center gap-2 font-mono text-[10px]">
+            <span className="uppercase tracking-[0.1em] text-amber-300">✦ My Rules</span>
+            <span className="text-ink-mute">·</span>
+            <span className="text-signal">{activeRulesCount} active</span>
+            {armedRulesCount > 0 && (
+              <>
+                <span className="text-ink-mute">·</span>
+                <span className="font-medium text-amber-300">⚡ {armedRulesCount} ARMED</span>
+              </>
+            )}
+            <span className="text-ink-mute">·</span>
+            <span className="text-ink-mute">{totalRulesCount} total</span>
+          </div>
+          <button onClick={onJumpToActiveRules}
+            className="font-mono text-[10px] uppercase tracking-[0.1em] text-amber-300 hover:text-amber-200">
+            Manage rules →
+          </button>
+        </div>
+      )}
+
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-4 text-xs">
           {["5m", "1h", "D"].map(t => (
@@ -900,7 +1106,7 @@ function ChartColumn({
         <div className="flex items-center gap-3">
           {nonPriceRules.length > 0 && (
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">Active triggers:</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-faint">{symbol} triggers:</span>
               {nonPriceRules.map((rule) => (
                 <button key={rule.id} onClick={() => onShowRule(rule.id)}
                   className="border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] text-amber-300 hover:bg-amber-500/20"
@@ -2084,25 +2290,42 @@ function TriggerLibraryModal({ symbol, data, onClose, onSelectCondition, onApply
 // ═════════════════════════════════════════════════════════════════════════════
 // BOTTOM TABS (Desktop)
 // ═════════════════════════════════════════════════════════════════════════════
-function BottomTabsArea({ activeTab, onTabChange }: { activeTab: BottomTab; onTabChange: (t: BottomTab) => void }) {
-  const tabs: { id: BottomTab; label: string }[] = [
-    { id: "balances", label: "Balances" }, { id: "positions", label: "Positions" }, { id: "outcomes", label: "Outcomes" },
-    { id: "openOrders", label: "Open Orders" }, { id: "twap", label: "TWAP" }, { id: "tradeHistory", label: "Trade History" },
-    { id: "fundingHistory", label: "Funding History" }, { id: "orderHistory", label: "Order History" }, { id: "triggerHistory", label: "Trigger History" },
+function BottomTabsArea({ activeTab, onTabChange, savedRules, onUpdateRule, onDeleteRule, onDuplicateRule, currentSymbol }: {
+  activeTab: BottomTab;
+  onTabChange: (t: BottomTab) => void;
+  savedRules: SavedRule[];
+  onUpdateRule: (id: string, updates: Partial<SavedRule>) => void;
+  onDeleteRule: (id: string) => void;
+  onDuplicateRule: (id: string) => void;
+  currentSymbol: Symbol;
+}) {
+  const tabs: { id: BottomTab; label: string; badge?: string | number; ourEdge?: boolean }[] = [
+    { id: "balances", label: "Balances" },
+    { id: "positions", label: "Positions" },
+    { id: "outcomes", label: "Outcomes" },
+    { id: "openOrders", label: "Open Orders" },
+    { id: "twap", label: "TWAP" },
+    { id: "tradeHistory", label: "Trade History" },
+    { id: "fundingHistory", label: "Funding History" },
+    { id: "orderHistory", label: "Order History" },
+    { id: "activeRules", label: "Active Rules", badge: savedRules.length, ourEdge: true },
+    { id: "triggerHistory", label: "Trigger History", badge: MOCK_TRIGGER_HISTORY.length, ourEdge: true },
   ];
   return (
     <div className="border-t border-bg-line">
       <div className="flex items-center gap-1 overflow-x-auto border-b border-bg-line px-3">
         {tabs.map(t => (
           <button key={t.id} onClick={() => onTabChange(t.id)}
-            className={`shrink-0 px-3 py-3 font-mono text-xs ${activeTab === t.id ? "text-signal border-b-2 border-signal" : "text-ink-mute hover:text-ink"}`}>
-            {t.label}
-            {t.id === "triggerHistory" && <span className="ml-1.5 inline-block rounded-sm bg-amber-500/20 px-1 py-px text-[9px] text-amber-300">Project.Q</span>}
+            className={`shrink-0 px-3 py-3 font-mono text-xs ${activeTab === t.id ? (t.ourEdge ? "text-amber-300 border-b-2 border-amber-400" : "text-signal border-b-2 border-signal") : "text-ink-mute hover:text-ink"}`}>
+            {t.ourEdge && <span className="mr-1">✦</span>}{t.label}
+            {t.badge !== undefined && <span className={`ml-1.5 inline-block rounded-sm px-1 py-px text-[9px] ${t.ourEdge ? "bg-amber-500/20 text-amber-300" : "bg-bg-line text-ink-mute"}`}>{t.badge}</span>}
           </button>
         ))}
       </div>
       <div className="min-h-[200px] p-4 text-sm">
-        {activeTab === "triggerHistory" ? <TriggerHistoryTable /> : (
+        {activeTab === "activeRules" && <ActiveRulesTable rules={savedRules} onUpdateRule={onUpdateRule} onDeleteRule={onDeleteRule} onDuplicateRule={onDuplicateRule} currentSymbol={currentSymbol} />}
+        {activeTab === "triggerHistory" && <TriggerHistoryTable />}
+        {activeTab !== "activeRules" && activeTab !== "triggerHistory" && (
           <p className="text-ink-faint">{activeTab === "positions" ? "No open positions yet" : `No data yet — connect wallet to see your ${tabs.find(t => t.id === activeTab)?.label.toLowerCase()}`}</p>
         )}
       </div>
@@ -2110,6 +2333,137 @@ function BottomTabsArea({ activeTab, onTabChange }: { activeTab: BottomTab; onTa
   );
 }
 
+// Helper to format time-ago
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const sec = Math.floor(diff / 1000);
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+  if (day > 0) return `${day}d ago`;
+  if (hr > 0) return `${hr}h ago`;
+  if (min > 0) return `${min}m ago`;
+  return `${sec}s ago`;
+}
+
+// Helper to summarize rule conditions
+function summarizeConditions(rule: SavedRule): string {
+  return rule.conditions.map(c => {
+    const meta = CONDITION_LABELS[c.kind];
+    const t = meta.unit === "USD" ? formatBig(c.threshold) : meta.unit === "" ? c.threshold.toFixed(2) : `${c.threshold}${meta.unit}`;
+    return `${meta.label} ${t}`;
+  }).join(" AND ");
+}
+
+// Active Rules Table — Project.Q differentiation
+function ActiveRulesTable({ rules, onUpdateRule, onDeleteRule, onDuplicateRule, currentSymbol }: {
+  rules: SavedRule[];
+  onUpdateRule: (id: string, updates: Partial<SavedRule>) => void;
+  onDeleteRule: (id: string) => void;
+  onDuplicateRule: (id: string) => void;
+  currentSymbol: Symbol;
+}) {
+  if (rules.length === 0) {
+    return (
+      <div className="py-8 text-center">
+        <p className="font-mono text-sm text-ink-mute">No active rules yet</p>
+        <p className="mt-1 font-mono text-[11px] text-ink-faint">Create rules in the Trigger panel — they appear here for management.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-bg-line text-left text-ink-faint">
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Status</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Rule</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Conditions (AND)</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Action</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Size</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Created</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Last Check</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase text-right">Manage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rules.map((rule) => {
+            const isCurrentSymbol = rule.symbol === currentSymbol;
+            return (
+              <tr key={rule.id} className={`border-b border-bg-line/40 ${isCurrentSymbol ? "bg-amber-500/5" : ""}`}>
+                <td className="py-2 px-2">
+                  <StatusBadge status={rule.status} />
+                </td>
+                <td className="py-2 px-2">
+                  <div className="font-mono text-[11px] text-ink">{rule.name ?? `${rule.symbol} rule`}</div>
+                  <div className="font-mono text-[10px] text-ink-faint">{rule.symbol}-USDC</div>
+                </td>
+                <td className="py-2 px-2 max-w-[280px]">
+                  <div className="font-mono text-[10px] text-ink-mute truncate" title={summarizeConditions(rule)}>{summarizeConditions(rule)}</div>
+                  <div className="font-mono text-[9px] text-ink-faint">{rule.conditions.length} condition{rule.conditions.length > 1 ? "s" : ""}</div>
+                </td>
+                <td className="py-2 px-2">
+                  <span className={`font-mono text-[11px] ${rule.side === "long" ? "text-signal" : "text-red-400"}`}>
+                    {rule.side === "long" ? "↑ Long" : "↓ Short"}
+                  </span>
+                  <div className="font-mono text-[9px] text-ink-faint">{rule.executionType}</div>
+                </td>
+                <td className="py-2 px-2 font-mono text-[11px] text-ink">{rule.sizePct}%</td>
+                <td className="py-2 px-2 font-mono text-[11px] text-ink-mute">{timeAgo(rule.createdAt)}</td>
+                <td className="py-2 px-2 font-mono text-[11px] text-ink-mute">
+                  {rule.status === "paused" ? "—" : rule.lastCheckedAt ? timeAgo(rule.lastCheckedAt) : "—"}
+                </td>
+                <td className="py-2 px-2 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    {rule.status === "paused" ? (
+                      <RuleActionBtn label="▶" title="Resume" onClick={() => onUpdateRule(rule.id, { status: "active", lastCheckedAt: Date.now() })} color="signal" />
+                    ) : (
+                      <RuleActionBtn label="⏸" title="Pause" onClick={() => onUpdateRule(rule.id, { status: "paused" })} color="default" />
+                    )}
+                    <RuleActionBtn label="✎" title="Edit" onClick={() => alert(`Demo: Edit rule ${rule.name ?? rule.id}\n\nIn M2, opens edit panel with all rule conditions for modification.`)} color="default" />
+                    <RuleActionBtn label="⎘" title="Duplicate" onClick={() => onDuplicateRule(rule.id)} color="default" />
+                    <RuleActionBtn label="×" title="Delete" onClick={() => { if (confirm(`Delete rule "${rule.name ?? rule.id}"?`)) onDeleteRule(rule.id); }} color="danger" />
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-3 font-mono text-[10px] text-ink-faint">
+        ✦ Active Rules — Project.Q&apos;s unique edge. Worker watches 24/7 and fires when conditions are met.
+        {rules.filter(r => r.symbol === currentSymbol).length > 0 && ` Current symbol rows highlighted.`}
+      </p>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: RuleStatus }) {
+  const config = {
+    active: { label: "● ACTIVE", className: "border-signal/40 bg-signal/10 text-signal" },
+    paused: { label: "⏸ PAUSED", className: "border-bg-line bg-bg-panel text-ink-mute" },
+    armed: { label: "⚡ ARMED", className: "border-amber-500/50 bg-amber-500/15 text-amber-300" },
+  };
+  const c = config[status];
+  return (
+    <span className={`inline-block border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.05em] ${c.className}`}>
+      {c.label}
+    </span>
+  );
+}
+
+function RuleActionBtn({ label, title, onClick, color }: { label: string; title: string; onClick: () => void; color: "default" | "signal" | "danger" }) {
+  const cls = color === "signal" ? "border-signal/40 text-signal hover:bg-signal/10" :
+              color === "danger" ? "border-red-500/30 text-red-400 hover:bg-red-500/10" :
+              "border-bg-line text-ink-mute hover:bg-bg-panel hover:text-ink";
+  return (
+    <button onClick={onClick} title={title} className={`border ${cls} w-7 h-7 flex items-center justify-center font-mono text-[11px] transition`}>
+      {label}
+    </button>
+  );
+}
+
+// Trigger History — enhanced with outcome + PnL
 function TriggerHistoryTable() {
   return (
     <div className="overflow-x-auto">
@@ -2118,26 +2472,62 @@ function TriggerHistoryTable() {
           <tr className="border-b border-bg-line text-left text-ink-faint">
             <th className="py-2 px-2 font-mono text-[10px] uppercase">Time</th>
             <th className="py-2 px-2 font-mono text-[10px] uppercase">Rule</th>
-            <th className="py-2 px-2 font-mono text-[10px] uppercase">Trigger</th>
-            <th className="py-2 px-2 font-mono text-[10px] uppercase">State</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Symbol</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Conditions</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Fire Reason</th>
             <th className="py-2 px-2 font-mono text-[10px] uppercase">Action</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase">Outcome</th>
+            <th className="py-2 px-2 font-mono text-[10px] uppercase text-right">PnL</th>
           </tr>
         </thead>
         <tbody>
-          {MOCK_TRIGGER_HISTORY.map((h, i) => (
-            <tr key={i} className="border-b border-bg-line/40">
-              <td className="py-2 px-2 font-mono text-[11px] text-ink-mute">{h.time}</td>
-              <td className="py-2 px-2 text-ink">{h.rule}</td>
-              <td className="py-2 px-2 font-mono text-[11px] text-ink-mute">{h.trigger}</td>
-              <td className="py-2 px-2"><span className={`font-mono text-[10px] uppercase ${h.status === "executed" ? "text-signal" : "text-ink-mute"}`}>{h.fired}</span></td>
-              <td className="py-2 px-2 font-mono text-[11px] text-ink-mute">{h.action ?? "—"}</td>
+          {MOCK_TRIGGER_HISTORY.map((h) => (
+            <tr key={h.id} className="border-b border-bg-line/40">
+              <td className="py-2 px-2 font-mono text-[11px] text-ink-mute">{timeAgo(h.firedAt)}</td>
+              <td className="py-2 px-2 font-mono text-[11px] text-ink">{h.ruleName}</td>
+              <td className="py-2 px-2 font-mono text-[11px] text-ink">{h.symbol}</td>
+              <td className="py-2 px-2 font-mono text-[10px] text-ink-mute max-w-[180px] truncate" title={h.conditions}>{h.conditions}</td>
+              <td className="py-2 px-2 font-mono text-[10px] text-ink-mute max-w-[180px]">{h.fireReason}</td>
+              <td className="py-2 px-2 font-mono text-[10px] text-ink-mute max-w-[200px] truncate" title={h.action}>{h.action ?? "—"}</td>
+              <td className="py-2 px-2">
+                <OutcomeBadge outcome={h.outcome} isOpen={h.isOpen} />
+              </td>
+              <td className="py-2 px-2 text-right font-mono text-[11px]">
+                {h.resultPnl !== undefined ? (
+                  <div>
+                    <div className={h.resultPnl >= 0 ? "text-signal" : "text-red-400"}>
+                      {h.resultPnl >= 0 ? "+" : ""}${h.resultPnl.toFixed(2)}
+                    </div>
+                    {h.resultPnlPct !== undefined && (
+                      <div className={`text-[10px] ${h.resultPnlPct >= 0 ? "text-signal/70" : "text-red-400/70"}`}>
+                        {h.resultPnlPct >= 0 ? "+" : ""}{h.resultPnlPct.toFixed(2)}%
+                      </div>
+                    )}
+                  </div>
+                ) : <span className="text-ink-faint">—</span>}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="mt-3 font-mono text-[10px] text-ink-faint">Mock data — V1 shows your real trigger fires (M2/M3).</p>
+      <p className="mt-3 font-mono text-[10px] text-ink-faint">
+        ✦ Trigger History — Project.Q&apos;s unique edge. Every fire is recorded with outcome and PnL for transparency.
+      </p>
     </div>
   );
+}
+
+function OutcomeBadge({ outcome, isOpen }: { outcome: "executed" | "skipped" | "failed"; isOpen?: boolean }) {
+  if (outcome === "executed" && isOpen) {
+    return <span className="border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase text-amber-300">OPEN</span>;
+  }
+  if (outcome === "executed") {
+    return <span className="border border-signal/40 bg-signal/10 px-1.5 py-0.5 font-mono text-[9px] uppercase text-signal">CLOSED</span>;
+  }
+  if (outcome === "skipped") {
+    return <span className="border border-bg-line bg-bg-panel px-1.5 py-0.5 font-mono text-[9px] uppercase text-ink-mute">SKIPPED</span>;
+  }
+  return <span className="border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase text-red-400">FAILED</span>;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

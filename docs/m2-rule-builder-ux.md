@@ -1,10 +1,171 @@
 # Trade Page UX — Design Memo
 
-> **Status**: UX design (W2 Day 13, v13 — Order Book/Trades panels + Trigger optimization).
+> **Status**: UX design (W2 Day 13, v15 — Active Rules tab + Trigger History enhanced + Chart rule indicator).
 > **Build target**: M1 (W3-W4) for foundation; M2 (W5-W6) for trigger panel; M3 (W7-W8) for execution.
-> **Anchored to**: Day 10 AM order execution split, Day 10 PM SDK (`@nktkas/hyperliquid`), Day 11 AM system rule seeding, **Day 13 signals-framework.md (D1-D15)**.
+> **Anchored to**: Day 10 AM order execution split, Day 10 PM SDK (`@nktkas/hyperliquid`), Day 11 AM system rule seeding, **Day 13 signals-framework.md (D1-D17)**.
 > **Live preview**: `/preview/trade` and `/preview/trigger-set`.
-> **Supersedes**: v1-v12 — earlier iterations.
+> **Supersedes**: v1-v14 — earlier iterations.
+
+## v15 changes (Active Rules management workflow)
+
+After v14 live review, founder identified three structural gaps. v15 addresses Active Rules management and Trigger History (Position details deferred to live data phase per founder's call).
+
+### Two new Bottom tabs
+
+1. **Active Rules tab** (Project.Q differentiation, ✦ amber)
+   - Status badge: ACTIVE / PAUSED / ARMED
+   - Columns: Status / Rule / Conditions / Action (Long/Short) / Size / Created / Last Check / Manage
+   - Inline actions: Pause/Resume / Edit / Duplicate / Delete
+   - Current symbol rows highlighted with amber tint
+   - 4 pre-seeded mock rules (1 ARMED to demo state)
+
+2. **Trigger History tab — enhanced** (was placeholder, now production-quality)
+   - Columns: Time / Rule / Symbol / Conditions / Fire Reason / Action / Outcome / PnL
+   - Outcome badges: OPEN / CLOSED / SKIPPED / FAILED
+   - PnL color-coded (green/red) with USD + %
+   - 7 mock history entries covering all outcome types
+
+### Chart rule indicator (new persistent row)
+
+Top of chart area:
+```
+✦ My Rules · 3 active · ⚡ 1 ARMED · 4 total     Manage rules →
+```
+
+- Shows across all symbols (not just current)
+- Armed count prominent (alerts user about to fire)
+- "Manage rules →" jumps to Active Rules tab
+- Removes need for sidebar drawer (keeps UI simple)
+
+### Tab badge counts
+
+Active Rules (4) · Trigger History (7) — instant at-a-glance state.
+
+### Bottom tab order rationale
+
+Standard HL/Based tabs preserved, our 2 differentiation tabs appended at end:
+
+```
+Balances | Positions | Outcomes | Open Orders | TWAP | Trade History |
+Funding History | Order History | ✦ Active Rules (4) | ✦ Trigger History (7)
+                                  └── Project.Q only ──┘
+```
+
+Per founder's decision: keep all standard perp DEX tabs (other DEX users expect these), add our differentiation tabs at end with amber emphasis.
+
+### Tab roles reference
+
+| # | Tab | Source | Role |
+|---|---|---|---|
+| 1 | Balances | HL userState + spotState | Asset balances (perp + spot + total) |
+| 2 | Positions | HL userState.assetPositions | Open positions with TP/SL editing |
+| 3 | Outcomes | HL prediction markets | Prediction outcome positions |
+| 4 | Open Orders | HL openOrders | Pending unfilled orders |
+| 5 | TWAP | HL twapHistory | TWAP order progress |
+| 6 | Trade History | HL userFills | Executed trade record |
+| 7 | Funding History | HL userFunding | Funding payments received/paid |
+| 8 | Order History | HL orderStatus | All orders (filled + cancelled) |
+| 9 | **Active Rules** | **Project.Q DB** | **✦ Currently-active trigger rules** |
+| 10 | **Trigger History** | **Project.Q DB** | **✦ Historical fires with outcomes** |
+
+### Deferred (per founder)
+
+- **Position details enhancement** — emerges naturally when live HL data flows
+- **Signal Alerts** (V1.5) — trigger-less notifications
+- **Sidebar drawer** (V2) — chart indicator sufficient for now
+- **`/rules` page** (V2) — bulk operations, backtest, analytics
+
+### Preserved from v14
+
+- 6 active signal cards + 2 V2 placeholder
+- L/S Ratio card with cross-exchange preview
+- 22 trigger conditions + 5 popular combos
+- Trigger panel: Slippage protection + Auto TP/SL + Mark Price reference
+- 3-tab middle column (Book/Trades/Signals)
+
+### Builder fee
+
+5 bps (confirmed in signals-framework.md D9)
+
+## v14 changes (L/S Ratio card + Trigger panel optimization)
+
+After v13 live review, trader feedback identified L/S Ratio missing from the 4 pillars of perp microstructure. v14 adds L/S Ratio as a 6th active signal card and optimizes the Trigger panel with research-backed best practices.
+
+### Structural changes
+
+1. **Signal cards: 7 → 8** (5 active + 2 placeholder → **6 active + 2 placeholder**)
+   - New: **Long/Short Ratio** card (between Order Flow and Liquidations)
+   - Card content: Ratio + Long/Short % bar + 24h trend sparkline + Cross-exchange preview + Extreme warning
+   - Status interpretation: 0.5-0.8 short-heavy, 0.8-1.2 balanced, 1.2-2.0 long-heavy, >2.5 or <0.4 extreme
+
+2. **New trigger conditions (5)**
+   - `lsRatioAbove` — L/S > X (e.g. 2.5 for fade)
+   - `lsRatioBelow` — L/S < X (e.g. 0.5 for bounce)
+   - `lsRatioFlipBullish` — L/S crosses 1.0 upward
+   - `lsRatioFlipBearish` — L/S crosses 1.0 downward
+   - Total triggers: 17 → 22
+
+3. **New Popular Combinations (2)**
+   - "Crowded long + funding extreme" → fade (short)
+   - "L/S flip + OI rising" → trend confirmation (long)
+   - Total combos: 3 → 5
+
+4. **Trigger panel optimization (research-backed)**
+   - **Slippage protection** field added when Execute as = Market (industry standard for conditional orders)
+   - **Auto TP/SL toggle** added (OCO pattern: one fills, other cancels)
+   - **Mark Price reference indicator** shown for price-based triggers (avoids wick-based false fires)
+   - All three based on industry best practices from BingX/Bybit/Crypto.com research
+
+### Why L/S Ratio matters
+
+L/S Ratio reveals current positioning vulnerability — different from Liquidations which shows past consequences:
+
+| Metric | Time | Use |
+|---|---|---|
+| Liquidations | Lagging (past 1h) | "What happened" |
+| L/S Ratio | Live (now) | "What might happen next" |
+
+Combined with Funding (cost) + OI (capital) + Liquidations (consequences), L/S Ratio completes the 4 pillars of perp microstructure analysis.
+
+### Data source
+
+Hyperliquid public API does not expose L/S Ratio. Our worker computes it from `clearinghouseState` snapshots:
+- Sample top 500-1000 active traders per market every minute
+- Account-weighted L/S ratio (each account counted once)
+- Rolling 24h history in Supabase
+- HL-only principle preserved (no external API)
+
+### Trigger panel best practices applied
+
+Based on industry research (BingX, Bybit, Crypto.com):
+
+| Feature | Why | Where |
+|---|---|---|
+| Slippage protection | Volatility wick = bad fill on market execution | THEN section (market only) |
+| Auto TP/SL (OCO) | One fills → other cancels, no double-position risk | THEN section |
+| Mark Price reference | Last price vulnerable to wick manipulation | Shown for price triggers |
+| Hidden conditions | Already hidden from order book (Bybit/HL standard) | (existing) |
+
+### Updated framework summary
+
+- **Active V1 cards (6)**: Funding · OI · Order Flow · **L/S Ratio (NEW)** · Liquidations · Order Book
+- **V2 placeholder cards (2)**: On-chain · HL Activity
+- **Trigger conditions (22)**: was 17
+- **Popular Combinations (5)**: was 3
+- **Trigger panel**: Slippage protection + Auto TP/SL + Mark Price reference
+
+### Preserved from v13
+
+- 3-tab middle column (Book / Trades / Signals)
+- Order Book ladder + Trades panel
+- Default trigger tab with PREVIEW badge
+- Condition cards with distance visualization
+- Trigger Library modal
+- Inline trigger buttons per signal category
+
+### Builder fee
+
+5 bps (confirmed in signals-framework.md D9)
 
 ## v13 changes (Order Book/Trades + Trigger panel optimization)
 

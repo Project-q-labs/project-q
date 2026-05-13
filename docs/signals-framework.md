@@ -554,6 +554,240 @@ Without Order Book + Trades panels, Project Q feels like an "analytics dashboard
 
 This change brings parity with Hyperliquid/Based on the table-stakes side, while preserving our signals + trigger differentiation in the same middle column.
 
+## D16: Long/Short Ratio — New Active Signal Card
+
+**Decision**: Add Long/Short Ratio as a 6th active signal category (5 → 6 active + 1 V2 placeholder).
+
+### Background
+
+After v13 live review, trader feedback identified a gap: the 4 pillars of perp trading microstructure are **Funding + Open Interest + Long/Short Ratio + Liquidations**. v13 had three of four — L/S Ratio was missing.
+
+### Why L/S Ratio matters (different from Liquidations)
+
+L/S Ratio and Liquidations measure fundamentally different things:
+
+| Metric | What it measures | Time | Use |
+|---|---|---|---|
+| **Liquidations** | Positions already wiped out | Lagging (past 1h) | "What happened" |
+| **L/S Ratio** | Positions currently held | Live (now) | "What might happen next" |
+
+L/S Ratio reveals positioning vulnerability before liquidations occur:
+- Crowded long + funding extreme → likely downside liquidation fuel
+- Crowded short + bullish catalyst → likely short squeeze fuel
+- L/S Ratio extreme → entry timing for contrarian play
+
+Per trader-grade research:
+> "Used well, L/S Ratio helps answer three trader questions: Is the move supported or crowded? Where is the liquidation fuel? Should you trade with momentum or fade it?"
+
+### Card placement
+
+After v13's `Funding / OI / Order Flow / Liquidations / Order Book / On-chain / HL Activity`, the new order is:
+
+**`Funding / OI / Order Flow / Long/Short Ratio / Liquidations / Order Book / On-chain / HL Activity`**
+
+L/S Ratio sits between Order Flow and Liquidations because:
+- Order Flow = buy/sell pressure (live trade flow)
+- L/S Ratio = positioning result of that flow (live positions)
+- Liquidations = consequence of positioning meeting price action (past)
+
+Natural left-to-right reading: live flow → current positioning → past consequences.
+
+### Card content (V1)
+
+```
+Long/Short Ratio    [HIGH] 1.92
+├ Ratio: 1.92 (long-heavy)
+├ Long accounts: 65.7%
+├ Short accounts: 34.3%
+├ 24h trend: ████████ ↑ rising
+├ Cross-exchange (V2 expansion):
+│   HL: 1.92, Binance: 1.45, Bybit: 1.62
+└ + Add trigger:
+    [L/S > 2.5]  [L/S < 0.8]
+    [Flip bullish] [Flip bearish]
+```
+
+### Data source — HL aggregation strategy
+
+Hyperliquid public API does not expose L/S Ratio directly. Our worker computes it from `clearinghouseState` snapshots:
+
+**V1 alpha approach** (HL-only, no external API):
+- Sample top 500-1000 active traders per market every minute
+- Compute account-weighted L/S ratio (each account counted once)
+- Store rolling 24h history in Supabase
+
+**Trade-off acknowledged**:
+- Not as comprehensive as Coinglass (samples top traders, not all)
+- But maintains HL-only principle (no $29-99/month subscription)
+- More accurate for HL-specific behavior than CEX-aggregated ratios
+
+**Future enhancements**:
+- V2: Position-size-weighted L/S ratio (not just account count)
+- V2: Top trader L/S vs Retail L/S divergence (HL Activity card)
+- V3: HLP vault L/S exposure
+
+### Trigger conditions (5 new)
+
+| Condition | Trigger when | Use case |
+|---|---|---|
+| `lsRatioAbove` | L/S > X (e.g. 2.5) | Crowded long fade |
+| `lsRatioBelow` | L/S < X (e.g. 0.5) | Crowded short bounce |
+| `lsRatioFlipBullish` | L/S crosses 1.0 upward | Trend turning bullish |
+| `lsRatioFlipBearish` | L/S crosses 1.0 downward | Trend turning bearish |
+| `lsRatioExtremeWithFunding` | L/S > X AND |funding| > Y | Conviction fade (V1.5) |
+
+### Popular Combinations expanded (3 → 5)
+
+New L/S-based combos for the Trigger Library and inline suggestions:
+
+| # | Name | Conditions | Side | Rationale |
+|---|---|---|---|---|
+| 1 | Funding extreme + OI rising | fundingAprAbove + oiChange24hAbove | short | (existing) |
+| 2 | Liquidation cascade + Buy flow | longLiquidationsAbove + buyFlowAbove | long | (existing) |
+| 3 | Cross-exchange funding gap | fundingGapAbove | short | (existing) |
+| 4 | **Crowded long + funding extreme** | lsRatioAbove + fundingAprAbove | short | (NEW) Classic fade setup |
+| 5 | **L/S flip + OI rising** | lsRatioFlipBullish + oiChange1hAbove | long | (NEW) Trend confirmation |
+
+### Updated framework summary
+
+- **Active V1 cards (6)**: Funding · OI · Order Flow · **L/S Ratio (NEW)** · Liquidations · Order Book
+- **V2 placeholder cards (2)**: On-chain · HL Activity (Top trader / HLP)
+- **Trigger conditions (17 → 22)**: Added 5 L/S Ratio triggers
+- **Popular Combinations (3 → 5)**: Added 2 L/S-based combos
+
+This brings us to the full 4-pillars standard while preserving HL-only data origin and reserving HL Activity (Top trader / HLP) as our V2 unique differentiation.
+
+## D17: Active Rules Management & Trigger History UX
+
+**Decision**: Add dedicated Bottom tab management for trigger rules — our core differentiation surfaced as first-class workflow.
+
+### Background
+
+After v14 live review, founder identified three structural gaps:
+1. **Active Rules management** — rule access only via chart click was insufficient for managing 5+ rules
+2. **Position details** — placeholder content needed enhancement (deferred to live data phase)
+3. **Alert/Trigger History** — existing tab was placeholder mock without proper outcome tracking
+
+v15 addresses #1 and #3. #2 is deferred to live data phase (founder's call: position details emerge naturally when real trading begins).
+
+### Two new dedicated Bottom tabs
+
+| Tab | Role | Project.Q-only data | Visual treatment |
+|---|---|---|---|
+| **Active Rules** | Manage currently-active trigger rules | ✅ Yes | ✦ amber emphasis |
+| **Trigger History** | Historical record of rule fires + outcomes | ✅ Yes | ✦ amber emphasis |
+
+These differ from standard HL exchange tabs (Balances/Positions/Orders) by being **outcome-focused on Project.Q's unique value** (rule-based trading + history).
+
+### Active Rules tab — column structure
+
+```
+Status | Rule | Conditions (AND) | Action | Size | Created | Last Check | Manage
+●ACTIVE BTC...  Funding>25%      ↓Short  5%    2h ago    just now    [⏸][✎][⎘][×]
+⏸PAUSED SOL...  Buy Flow>65%     ↑Long   3%    1d ago    —           [▶][✎][⎘][×]
+⚡ARMED  HYPE... L/S>2.5+Fund>20% ↓Short  4%    5h ago    just now    [⏸][✎][⎘][×]
+```
+
+**Status types**:
+- `active` — Worker is monitoring, conditions not yet met
+- `paused` — User-paused; not being monitored
+- `armed` — ALL conditions currently met; would fire immediately when execution layer is live (M2+)
+
+**Actions**:
+- ⏸/▶ — Pause / Resume (toggle)
+- ✎ — Edit (open rule editor with all conditions)
+- ⎘ — Duplicate (clone rule)
+- × — Delete (confirm before action)
+
+**Highlighting**: Rows for the currently-selected symbol get amber background tint for quick context.
+
+### Trigger History tab — column structure
+
+```
+Time | Rule | Symbol | Conditions | Fire Reason | Action Taken | Outcome | PnL
+2h ago DOGE crowded long fade DOGE Funding>30% AND L/S>2.5 Funding hit 38.7% Short DOGE 3% @ $0.1102 [OPEN] +$24.50 +4.2%
+18h ago SOL momentum entry SOL Buy Flow>60% AND OI 1h>1% Buy flow hit 64% Long SOL 5% @ $94.20 [CLOSED] +$48.10 +1.03%
+1d ago ETH funding flip ETH Funding flips bearish Funding turned negative Short ETH 4% @ $2,348 [CLOSED] -$12.40 -0.53%
+2d ago BTC funding extreme BTC Funding APR > 25% Funding APR hit 26.4% Position already open — skipped [SKIPPED] —
+```
+
+**Outcome badges**:
+- `OPEN` — Trade executed, position still active (amber)
+- `CLOSED` — Trade executed and closed (signal green)
+- `SKIPPED` — Conditions met but trade not executed (e.g., insufficient balance, already in position, Reduce Only conflict)
+- `FAILED` — Execution attempt failed (red)
+
+**PnL display**:
+- Realized PnL in USD + %
+- Color-coded (green/red)
+- Empty for SKIPPED/FAILED outcomes
+
+### Chart rule indicator (new)
+
+Top of chart shows persistent rule status across all symbols:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ ✦ My Rules · 3 active · ⚡ 1 ARMED · 4 total       Manage rules → │
+└─────────────────────────────────────────────────────────────────┘
+[5m] [1h] [D] | ƒ Indicators        BTC triggers: ⚡ 2-cond ⚡ 3-cond
+[Chart...]
+```
+
+Clicking "Manage rules →" auto-switches Bottom tab to Active Rules.
+Armed count is prominently displayed (amber bold) to alert users when a rule is about to fire.
+
+### Tab badge counts
+
+```
+Active Rules (4)    Trigger History (7)
+```
+
+Numbers help users see at-a-glance:
+- How many rules are active
+- How many fires happened recently
+
+Color: amber background (✦ Project.Q signature)
+
+### Pre-seeded mock data (4 active rules + 7 history entries)
+
+To demonstrate functionality in alpha:
+
+**Active Rules** (preserved across page reloads — would be Supabase in V1):
+1. BTC funding extreme — short (active)
+2. SOL momentum entry (paused)
+3. HYPE crowded long (armed — conditions actually met in mock data)
+4. DOGE liquidation bounce (active)
+
+**Trigger History** (7 entries covering all outcome types):
+- 2 fires with open positions (recent)
+- 4 fires closed (mix of profitable / losing)
+- 1 fire skipped (showing edge case)
+
+### Rationale
+
+**Why these are first-class tabs, not afterthoughts**:
+- Project.Q's core value = trigger-based trading
+- Without robust rule management, users can't trust the system
+- Trigger History with PnL = transparency = retention
+- Chart indicator = passive awareness during active trading
+
+**Comparison with alternative designs**:
+- Sidebar drawer — rejected: complexity + duplicates Bottom tab data
+- Separate `/rules` page — deferred to V2 for power users
+- Bottom tab only — chosen: standard pattern, single source of truth, scales
+
+### V2 enhancements (deferred)
+
+- Sidebar drawer for trade-time monitoring (currently chart indicator suffices)
+- Separate `/rules` page with advanced features:
+  - Bulk operations (pause all, delete all)
+  - Search/filter/sort
+  - Backtest preview
+  - Rule analytics (fire rate, win rate)
+- Position details enhancement (when live data flows)
+- Signal Alerts tab (trigger-less notifications)
+
 ---
 
 # Phase 1 Reference — Research Background
