@@ -319,6 +319,241 @@ Total ecosystem: $40M+ paid to builders since launch. ~40% of HL daily active us
 
 → Project Q's path to revenue: same model as Phantom/PVP.trade/Hyperdash. Our differentiation is the signal + trigger UX, not the fee mechanism.
 
+## D10: Trigger Condition Display — Current Value + Distance Visualization
+
+**Decision**: Each trigger condition card shows current value, threshold, and visual distance to fire.
+
+**Pattern**:
+```
+BTC Funding APR > 25%
+Now: 11.04%  →  56% to fire
+████████░░░░░░░░░░░░░░  (44% progress bar)
+```
+
+**Rationale**:
+- Pro perp traders need real-time feedback ("How close am I to firing?")
+- Reduces cognitive load (no mental calculation)
+- Distance % is universal across all condition types
+- Progress bar gives at-a-glance awareness
+
+**Implementation note**: Distance calculation depends on condition type:
+- `>X` triggers: progress = current/threshold (clamped 0-100%)
+- `<X` triggers: inverse (closer to threshold = more progress)
+- Binary triggers (e.g., flip): show "armed/unarmed" instead
+
+## D11: 17-Condition Entry Points — Hybrid B+C
+
+**Decision**: Two complementary entry paths to triggers.
+
+### Path 1: In-context (Signal card expansion)
+Each signal category expansion shows ALL relevant triggers for that category as inline buttons:
+```
+Funding card expanded:
+  ...funding data...
+  + Add trigger:
+  [APR > 25] [APR < -5] [Flip] [Gap > 100]
+```
+Serves users browsing signals → seeing context → adding trigger immediately.
+
+### Path 2: Trigger Library (separate modal)
+Order panel has "Browse all triggers" button → opens modal with:
+- Full 17-condition catalog grouped by category
+- Search bar (filter by name)
+- "Popular combinations" section
+Serves users starting from trigger intent → discovering all options.
+
+**Why hybrid (B+C)**:
+- B alone misses: full catalog overview, search, recommendations
+- C alone misses: in-context flow from signals
+- Combined: progressive disclosure (B for casual, C for power users)
+
+## D12: Trigger Visual Priority — Default Tab + PREVIEW Badge
+
+**Decision**: Trigger is the default selected tab in Order panel, visually distinguished with "PREVIEW" badge.
+
+**Pattern**:
+```
+Order Panel:
+┌──────────────────────────────────┐
+│ Market | Limit | ★ TRIGGER PREVIEW │
+│                  └─ default selected │
+├──────────────────────────────────┤
+│ ⚡ Trigger trading is our core    │
+│   feature. Currently in preview  │
+│   — full execution in M2 (W5-W6).│
+│   Build rules now; they fire     │
+│   when M2 launches.              │
+└──────────────────────────────────┘
+```
+
+**Rationale**:
+- Trigger is core differentiation (must signal on first page load)
+- Market/Limit work in alpha (real trades possible) — preserved as accessible options
+- "PREVIEW" badge sets honest expectations
+- Users build rules now → ready when M2 launches
+
+## D13: Order Panel Information Density — HL Standard + Trigger Optimization
+
+**Decision**: Market/Limit panels match Hyperliquid/Based standards. Trigger panel adds trigger-specific information.
+
+### Market & Limit panels (HL baseline)
+
+Required fields (all must be present):
+- Available to Trade
+- Current Position
+- Size input + percentage slider
+- Leverage selector (e.g., 10x)
+- Margin mode (Cross / Isolated)
+- Reduce Only checkbox
+- TP/SL section (Mark price triggered)
+- Liquidation Price (calculated when size > 0)
+- Order Value (calculated)
+- Fees (HL fee + 5 bps builder, shown together)
+
+Market-specific: Slippage (Estimated + Max)
+Limit-specific: Limit Price input, Post Only (ALO), GTC / IOC toggle
+
+Advanced (V1.5 / V2): TWAP, Trailing Stop, Chase Orders, Scale Orders, Position Alerts
+
+### Trigger panel (optimized for differentiation)
+
+**Three sections**:
+
+1. **When** (trigger conditions):
+   - Up to 3 conditions, AND-combined only (D14)
+   - Each condition card: D10 pattern (current value + distance + progress bar)
+   - "Browse all triggers" button → D11 modal
+   - "Popular combinations" inline suggestions
+
+2. **Then** (action on trigger):
+   - Direction (Long / Short)
+   - Size (% portfolio)
+   - Order type to use when fires: Market or Limit
+   - Auto TP/SL toggle (optional)
+
+3. **Preview** (expected outcome):
+   - "If triggered now: Entry $X, Liq $Y, Size $Z"
+   - Estimated fees (HL + 5 bps builder)
+   - Risk per trade % (Position size / Equity)
+
+4. **Action**: "Save as Rule" button (amber, distinctive) + "PREVIEW" badge
+
+## D14: Multi-condition UX — Manual AND + Recommended Patterns
+
+**Decision**: Three-tier approach to multi-condition rules.
+
+### V1 alpha: Manual + Recommendations
+
+**Manual composition**:
+- **AND-only** (OR removed — research showed low usage, adds complexity)
+- Max 3 conditions per rule
+- Per-condition: select from D11 catalog
+
+**Recommended Combinations** (new section):
+Inline in Trigger panel, 3-5 "Popular patterns" cards:
+```
+Popular combinations:
+• "Funding extreme + OI rising" → mean reversion fade
+• "Liquidation cascade + Buy flow > 60%" → bounce play
+• "Cross-exchange gap > 100 bps" → arbitrage opportunity
+```
+Click on a pattern → auto-fills all conditions, ready to adjust.
+
+### V2: Pre-built Strategy Templates (Coinrule model)
+- Strategy templates page (extends Trigger Set marketplace)
+- One-click activation, 350+ templates aspirational
+- Categorized: Trend / Mean Reversion / Arbitrage / Funding plays
+- Backtest results displayed per template
+
+### V3+: AI Suggester (LuxAlgo Quant pattern)
+- Natural language → rule generation
+- AI recommends based on user's past rules
+- Automated threshold tuning
+
+**Rationale**:
+- V1 keeps scope tight while adding curated value
+- V2-V3 progression aligns with long-term differentiation
+- OR removed: TradingView multi-condition launch (Oct 2025) used AND-priority pattern, validated
+
+## D15: Tabbed Middle Column — Order Book / Trades / Signals
+
+**Decision**: Replace the current Signals column with a tabbed middle column hosting THREE views.
+
+### Rationale
+
+Industry standard (Hyperliquid, Based, Bybit, Binance) places real-time Order Book + Trades panels alongside the chart and order entry. These are essential for active trade execution (where to place limit orders, gauging buy/sell pressure, spotting whale fills).
+
+The current v12 Signals column conflates two different uses of "Order Book":
+1. **Trader's execution tool** (full ladder for placing orders) — missing in v12
+2. **Microstructure signal** (Spread/Imbalance/Depth metrics for triggers) — present in v12
+
+These serve different purposes and should coexist. Adding Order Book + Trades panels does not displace Signals; all three share a middle column via tab switching.
+
+### Layout (1440px desktop)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│   Chart 56%      │   Middle 22%    │   Order 22%             │
+│   ~800px         │   ~300px        │   ~320px                │
+│                  │                 │                         │
+│                  │  ┌─ Book | Trades | Signals ─┐ ← 3 tabs   │
+│                  │  │                            │             │
+│                  │  │  [Active tab content]      │             │
+│                  │  │                            │             │
+│                  │  └────────────────────────────┘             │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Tab 1: Order Book (full ladder)
+
+Real-time bid/ask ladder, ~15-20 levels, refreshing via HL WS `l2Book`:
+- Asks (red) above, Bids (green) below
+- Columns: Price | Size | Cumulative Total
+- Mid-price separator (with spread display)
+- Footer: Spread / Total bids / Total asks
+
+### Tab 2: Trades (recent fills)
+
+Real-time trade stream via HL WS `trades`:
+- Most recent 30-50 trades
+- Columns: Price | Size | Time
+- Buy (green) / Sell (red) color coding
+- Auto-scroll, with manual scroll on hover
+
+### Tab 3: Signals (current v12 content)
+
+The current 7-category expandable signal column moves into this tab without major changes. Note: column width increases from 280px → 300px, allowing slightly richer per-card layouts (Cross-exchange comparison gets more space).
+
+### Default tab
+
+**Signals** is default selected (our differentiation). Users can switch to Order Book or Trades anytime. This balances:
+- Trader's habit: expects Order Book where it usually is (alongside chart)
+- Our identity: signals are why people come to Project Q
+
+### Mobile pattern
+
+Bottom Tab Bar remains 3 tabs (Markets / Trade / Account). The Markets page sub-tabs expand from 3 → 4:
+```
+[Chart]  [Market Data]  [Trigger]
+```
+"Market Data" tab contains internal sub-tabs: Book / Trades / Signal (same as desktop).
+
+### Data source clarification
+
+| Panel | Data source | Update frequency | Existing in v12? |
+|---|---|---|---|
+| **Order Book (full ladder)** | HL WS `l2Book` (20 levels) | Real-time | ❌ NEW in v13 |
+| **Trades (recent fills)** | HL WS `trades` | Real-time | ❌ NEW in v13 |
+| **Signals (Order Book metrics card)** | Same `l2Book` WS, our worker aggregates Spread/Imbalance/Depth | Real-time | ✅ v12 |
+
+The Order Book ladder (Tab 1) and the Order Book signal card (inside Tab 3) draw from the same WS feed but serve different purposes — ladder is execution, card is for triggers.
+
+### Why this matters
+
+Without Order Book + Trades panels, Project Q feels like an "analytics dashboard with a buy button" — not a real trading interface. Active traders constantly reference order book depth and recent fill velocity. Even our trigger feature benefits: users see live conditions (Order Book ladder) → make better trigger threshold decisions.
+
+This change brings parity with Hyperliquid/Based on the table-stakes side, while preserving our signals + trigger differentiation in the same middle column.
+
 ---
 
 # Phase 1 Reference — Research Background

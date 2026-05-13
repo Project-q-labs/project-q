@@ -1,10 +1,95 @@
 # Trade Page UX — Design Memo
 
-> **Status**: UX design (W2 Day 13, v12 — 7 signal categories + cross-exchange funding + Basis + Liquidations).
+> **Status**: UX design (W2 Day 13, v13 — Order Book/Trades panels + Trigger optimization).
 > **Build target**: M1 (W3-W4) for foundation; M2 (W5-W6) for trigger panel; M3 (W7-W8) for execution.
-> **Anchored to**: Day 10 AM order execution split, Day 10 PM SDK (`@nktkas/hyperliquid`), Day 11 AM system rule seeding, **Day 13 signals-framework.md (D1-D9)**.
+> **Anchored to**: Day 10 AM order execution split, Day 10 PM SDK (`@nktkas/hyperliquid`), Day 11 AM system rule seeding, **Day 13 signals-framework.md (D1-D15)**.
 > **Live preview**: `/preview/trade` and `/preview/trigger-set`.
-> **Supersedes**: v1-v11 — earlier iterations.
+> **Supersedes**: v1-v12 — earlier iterations.
+
+## v13 changes (Order Book/Trades + Trigger panel optimization)
+
+After v12 live review, founder identified that the Order Book + Trades panels (standard on HL/Based) were missing — only Signal microstructure metrics were present. v13 adds these as a 3-tab middle column.
+
+### Structural changes
+
+1. **Middle column: 3-tab structure** (D15)
+   - Was (v12): Signals only
+   - Now (v13): **Book / Trades / Signals** tabs
+   - Default: Book (trader habit)
+   - Signals tab visually emphasized: ✦ amber color + count badge (7)
+
+2. **Order Book Ladder** (NEW)
+   - Real-time bid/ask depth, ~12 levels each side
+   - Columns: Price | Size | Cumulative Total
+   - Red asks above, green bids below
+   - Mid-price separator with spread display
+   - Footer: Bids/Asks total in USD
+
+3. **Trades Panel** (NEW)
+   - Recent trades list (~20 fills)
+   - Columns: Price | Size | Time ago
+   - Buy/Sell color coding
+
+4. **Trigger Order Panel — Major refresh** (D10-D14)
+   - Default tab is now **Trigger** with "PREVIEW" badge (D12)
+   - PREVIEW alert: "Build rules now, fire when M2 launches"
+   - Three sections: **When / Then / Preview**
+
+5. **Condition cards with distance visualization** (D10)
+   - Shows: Now (current value) + N% to fire + progress bar
+   - ARMED state when threshold reached
+   - Inline threshold editing
+
+6. **Inline trigger buttons in Signal categories** (D11 path 1)
+   - Each category has 2-4 trigger buttons
+   - Funding: APR>X, APR<X, Flip, Cross-exchange Gap
+   - OI: 24h change, 1h change
+   - Order Flow: Buy%, Large fill, Net flow
+   - Liquidations: Total, Long, Short
+   - Order Book: Spread, Imbalance
+
+7. **Trigger Library Modal** (D11 path 2)
+   - Full 17-condition catalog grouped by category
+   - Search bar
+   - Popular Combinations section (3 curated combos)
+   - Access via "Browse all →" link in Trigger panel
+
+8. **Popular Combinations** (D14)
+   - Inline in Trigger panel (when no conditions yet)
+   - Also in Trigger Library Modal
+   - 3 curated: "Funding extreme + OI rising", "Liquidation cascade + Buy flow", "Cross-exchange gap"
+   - Click → auto-fills conditions
+
+9. **OR toggle removed** (D14)
+   - Multi-condition rules are AND-only
+   - Simpler UX, matches TradingView multi-condition pattern
+
+10. **Market/Limit panel — HL standard fields** (D13)
+    - Added: Margin mode (Cross/Isolated), Leverage, GTC/IOC toggle (limit), Post Only (limit)
+    - Liquidation Price calculation
+    - Order Value calculation
+    - Fees: 0.035% HL + 0.05% builder
+
+11. **Trigger panel Preview section** (D13)
+    - "If triggered now": Entry price, Position size, Liquidation, Risk %, Fees
+    - Direct decision aid before saving rule
+
+12. **Mobile redesign for Market Data**
+    - Mobile sub-tabs: Chart / **Market Data** / Trigger (was 3-tab now still 3)
+    - Market Data tab contains sub-sub-tabs: Book / Trades / ✦ Signals (7)
+
+### Preserved from v12
+
+- 7 signal categories (5 active + 2 V2 placeholder)
+- Cross-exchange funding comparison
+- Trigger price line visualization on chart
+- Click line → Active Rule view + Cancel
+- Chart 600px height
+- Mobile Bottom Tab Bar
+
+### Builder fee
+
+5 bps (confirmed in signals-framework.md D9 — alpha policy)
 
 ## v12 changes (signals framework reflection)
 
